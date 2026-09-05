@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.so
+*.egg-info/
+*.lock
+build/
+emitted/
+opengemm-configs/
+results/
+dist/

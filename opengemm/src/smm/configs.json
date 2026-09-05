@@ -1,0 +1,4266 @@
+{
+ "kind": "smm",
+ "arch": "sm_100",
+ "entries": [
+  {
+   "dtype": "nvfp4",
+   "m": 128,
+   "n": 128,
+   "k": 128,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 256,
+   "n": 256,
+   "k": 256,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 512,
+   "n": 512,
+   "k": 512,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 1024,
+   "n": 1024,
+   "k": 1024,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 2,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 4096,
+   "n": 4096,
+   "k": 4096,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 16384,
+   "n": 16384,
+   "k": 16384,
+   "config": {
+    "use_2cta": 1,
+    "output_n": 256,
+    "swap_ab": false,
+    "epi_trade": 0,
+    "deep_stages": 0,
+    "use_clc": true,
+    "cluster_m": 2,
+    "cluster_n": 1,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "epi_direct": 0,
+    "persistent": 1
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 1,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 4,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 16,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 32,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 4,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 64,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 128,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 256,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 512,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 1024,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 4096,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 14336,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 16384,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 16,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 16,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 32,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 32,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 64,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 64,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 128,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 256,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 512,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 4,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 1024,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 4096,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 8192,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 14336,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 16384,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 32,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 1,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 64,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 128,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 256,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 512,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 1024,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 4096,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": true,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 14336,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 16384,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 65536,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 1,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": true,
+    "output_n": 8,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": true,
+    "output_n": 8,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 4,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": true,
+    "output_n": 8,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": true,
+    "output_n": 8,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 16,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": true,
+    "output_n": 16,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 32,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": true,
+    "output_n": 32,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 64,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": true,
+    "output_n": 64,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 128,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 256,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "use_2cta": 1,
+    "output_n": 128,
+    "swap_ab": false,
+    "epi_trade": 0,
+    "deep_stages": 1,
+    "use_clc": false,
+    "cluster_m": 2,
+    "cluster_n": 1,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "epi_direct": 0,
+    "persistent": 1
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 16,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 16,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 32,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 32,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 64,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 1,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 64,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 128,
+   "k": 8192,
+   "config": {
+    "use_2cta": 1,
+    "output_n": 128,
+    "swap_ab": false,
+    "epi_trade": 0,
+    "deep_stages": 1,
+    "use_clc": false,
+    "cluster_m": 2,
+    "cluster_n": 1,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "epi_direct": 0,
+    "persistent": 1
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 256,
+   "k": 8192,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 32,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 1,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 64,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 1,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 128,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 1,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 256,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 1,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 2048,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 4096,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 14336,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 16384,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 65536,
+   "config": {
+    "cluster_k": 1,
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 300,
+   "n": 520,
+   "k": 768,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   },
+   "measured": {
+    "us": 5.393,
+    "cublas_us": null,
+    "env": {
+     "gpu": "NVIDIA B200",
+     "device": "1",
+     "torch": "2.11.0+cu130",
+     "date": "2026-09-04"
+    }
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 77,
+   "n": 33,
+   "k": 128,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 0,
+    "epi_direct": 0
+   },
+   "measured": {
+    "us": 4.461,
+    "cublas_us": null,
+    "env": {
+     "gpu": "NVIDIA B200",
+     "device": "1",
+     "torch": "2.11.0+cu130",
+     "date": "2026-09-04"
+    }
+   }
+  },
+  {
+   "dtype": "nvfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 384,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   },
+   "measured": {
+    "us": 14.98,
+    "cublas_us": 12.672,
+    "env": {
+     "gpu": "NVIDIA B200",
+     "device": "1",
+     "torch": "2.11.0+cu130",
+     "date": "2026-09-04"
+    }
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 128,
+   "n": 128,
+   "k": 128,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 256,
+   "n": 256,
+   "k": 256,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 512,
+   "n": 512,
+   "k": 512,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 1024,
+   "n": 1024,
+   "k": 1024,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 4096,
+   "n": 4096,
+   "k": 4096,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 16384,
+   "n": 16384,
+   "k": 16384,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 1,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 4,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 16,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 32,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 64,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 128,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 256,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 512,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 1024,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 4096,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 14336,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 16384,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 16,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 32,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 64,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 128,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 256,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 512,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 1024,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 4096,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 8192,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 14336,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 16384,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 32,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 64,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 128,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 256,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 512,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 1024,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 4096,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 14336,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 16384,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 65536,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 1,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 4,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 16,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 32,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 64,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 128,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 256,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 16,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 32,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 64,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 128,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 256,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 32,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 64,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 128,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 256,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 4096,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 14336,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 16384,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 8192,
+   "n": 8192,
+   "k": 65536,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 300,
+   "n": 520,
+   "k": 768,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   },
+   "measured": {
+    "us": 6.763,
+    "cublas_us": null,
+    "env": {
+     "gpu": "NVIDIA B200",
+     "device": "1",
+     "torch": "2.11.0+cu130",
+     "date": "2026-09-04"
+    }
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 77,
+   "n": 33,
+   "k": 128,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   },
+   "measured": {
+    "us": 8.545,
+    "cublas_us": null,
+    "env": {
+     "gpu": "NVIDIA B200",
+     "device": "1",
+     "torch": "2.11.0+cu130",
+     "date": "2026-09-04"
+    }
+   }
+  },
+  {
+   "dtype": "mxfp8",
+   "m": 2048,
+   "n": 2048,
+   "k": 384,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   },
+   "measured": {
+    "us": 13.147,
+    "cublas_us": 20.128,
+    "env": {
+     "gpu": "NVIDIA B200",
+     "device": "1",
+     "torch": "2.11.0+cu130",
+     "date": "2026-09-04"
+    }
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 128,
+   "n": 128,
+   "k": 128,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 256,
+   "n": 256,
+   "k": 256,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 512,
+   "n": 512,
+   "k": 512,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 1024,
+   "n": 1024,
+   "k": 1024,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 4096,
+   "n": 4096,
+   "k": 4096,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 16384,
+   "n": 16384,
+   "k": 16384,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 1,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 4,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 16,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 32,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 64,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 128,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 256,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 512,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 1024,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 4096,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 14336,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 16384,
+   "n": 2048,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 16,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 32,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 64,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 128,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 256,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 512,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 1024,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 4096,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 8192,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 14336,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 16384,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 32,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 64,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 128,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 256,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 512,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 0,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 1024,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 4096,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 14336,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 16384,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2048,
+   "n": 2048,
+   "k": 65536,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 4,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 1,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 2,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 4,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 16,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 32,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 64,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 128,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 2,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 256,
+   "n": 8192,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 16,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 32,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 64,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 128,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 128,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 256,
+   "k": 8192,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 1,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 32,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 64,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 128,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 256,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 1,
+    "use_2cta": false,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 2048,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 4096,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 32,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 14336,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 16384,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 16,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  },
+  {
+   "dtype": "mxfp4",
+   "m": 8192,
+   "n": 8192,
+   "k": 65536,
+   "config": {
+    "cluster_n": 1,
+    "deep_stages": 0,
+    "use_clc": false,
+    "epi_trade": 0,
+    "swap_ab": false,
+    "output_n": 256,
+    "cluster_m": 2,
+    "use_2cta": true,
+    "cluster_k": 1,
+    "supergroup": 8,
+    "persistent": 1,
+    "epi_direct": 0
+   }
+  }
+ ]
+}

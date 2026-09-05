@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opengemm"
+version = "0.1.0"
+description = "Open GEMM kernels for NVIDIA B200 (sm_100a) in CUDA"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+authors = [{name = "Aditya Ramesh"}]
+keywords = ["gemm", "cuda", "blackwell", "sm_100a", "kernels", "agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = ["torch>=2.8"]
+
+[project.urls]
+Homepage = "https://github.com/aramesh10/OpenGEMM"
+Repository = "https://github.com/aramesh10/OpenGEMM"
+Issues = "https://github.com/aramesh10/OpenGEMM/issues"
+
+[tool.setuptools]
+packages = ["opengemm", "opengemm.python"]
+
+[tool.setuptools.package-data]
+opengemm = ["shapes.jsonc", "src/*/*.cu", "src/*/*.cuh", "src/*/configs.json"]

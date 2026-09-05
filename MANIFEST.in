@@ -1,0 +1,4 @@
+include LICENSE README.md
+recursive-include opengemm *.cu *.cuh *.json *.jsonc
+global-exclude *.pyc
+global-exclude __pycache__/*
