@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/registry.cuh"
 #include "types.cuh"
 
 // Every kernel this build compiles is named here, and nothing else is
@@ -12,7 +13,7 @@
 
 namespace mm_registry {
 
-template <Policy... Ps> struct List {};
+using opengemm::List;
 
 // One constructor per operand pair. The elements decide the MMA kind between
 // them, so a line names the schedule and nothing else:

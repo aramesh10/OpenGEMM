@@ -9,9 +9,8 @@ disagree about what a stored configuration means.
 
 from .dtypes import DTYPES
 
-# Every configs.json key each kernel takes. A stored configuration naming
-# anything else was written for a different build, and silently ignoring it
-# would run something other than what it asks for.
+# Every configs.json key each kernel takes; anything else was written for a
+# different build and must not be silently ignored.
 CONFIG_KEYS = {
     "mm": ("use_2cta", "output_n", "use_clc", "supergroup", "swap_ab",
            "k_pad", "epi_direct", "epi_hold", "cluster_n", "stages",
@@ -43,6 +42,45 @@ def splits_for(epi_mode, requested, k):
     if epi_mode == 1 or requested <= 1:
         return 1
     return min(requested, -(-k // 128))
+
+
+def mm_row(policy):
+    """Return `policy` as the registry row src/mm/launch.cuh exports.
+
+    The kernel is templated on the hardware names; the registry reads back in
+    the harness ones, and that is the side a stored configuration is matched to
+    a compiled kernel on.
+    """
+    return {"elem_a": policy["elem_a"],
+            "elem_b": policy["elem_b"],
+            "use_2cta": policy["cta_group"] == 2,
+            "block_m": policy["block_m"],
+            "output_n": policy["mma_n"],
+            "stages": policy["stages"],
+            "swap_ab": policy["swap_ab"],
+            "epi_hold": policy["epi_hold"],
+            "epi_double": policy["epi_mode"],
+            "epi_direct": policy["epi_direct"],
+            "use_clc": policy["use_clc"],
+            "splits_expected": policy["split_k"],
+            "cluster_m": policy["cta_group"] * policy["rm"],
+            "cluster_n": policy["rn"],
+            "cluster_k": policy["rk"]}
+
+
+def smm_row(policy):
+    """Return `policy` as the registry row src/smm/launch.cuh exports."""
+    return {"elem": policy["elem_a"],
+            "sf": policy["elem_sf"],
+            "use_2cta": policy["cta_group"] == 2,
+            "output_n": policy["mma_n"],
+            "swap_ab": policy["swap_ab"],
+            "epi_trade": policy["epi_trade"],
+            "deep_stages": policy["deep"],
+            "use_clc": policy["use_clc"],
+            "cluster_m": policy["cta_group"] * policy["rm"],
+            "cluster_n": policy["rn"],
+            "cluster_k": policy["rk"]}
 
 
 def mm_policy(dtype, config, k):

@@ -1,9 +1,8 @@
 """Where the compiled kernel libraries come from.
 
 A wheel ships them, already built. A source checkout, an edited kernel or
-OPENGEMM_JIT=1 compiles them with nvcc instead -- one translation unit per
-impl, covering every kernel its registry.cuh names -- and caches the result
-under OPENGEMM_CACHE, keyed by a digest of the sources it was built from.
+OPENGEMM_JIT=1 compiles them with nvcc instead and caches the result under
+OPENGEMM_CACHE, keyed by a digest of the sources it was built from.
 """
 
 import hashlib
@@ -27,11 +26,9 @@ LIB = PACKAGE / "lib"
 CACHE = Path(os.environ.get("OPENGEMM_CACHE") or
              Path(os.environ.get("XDG_CACHE_HOME",
                                  Path.home() / ".cache")) / "opengemm")
-# The library links no torch and no libpython, and nvcc links the CUDA runtime
-# statically, so what it needs at load is the driver and nothing else. Hidden
-# visibility keeps the inline helpers in the two host_utils.cuh files, which
-# share names and not signatures, from colliding; capi.h opts the entry points
-# back out.
+# Hidden visibility keeps the inline helpers the two builds share names but
+# not signatures for, tmap.cuh's above all, from colliding when both libraries
+# are loaded into one process; common/abi.h opts the entry points back out.
 LIBRARY_FLAGS = ["-shared", "-Xcompiler", "-fPIC",
                  "-Xcompiler", "-fvisibility=hidden"]
 
@@ -40,12 +37,16 @@ def source_hash(impl):
     """Return a digest of the sources `impl`'s library is built from.
 
     Content, not mtime: pip rewrites mtimes on reinstall, so a timestamp says a
-    rebuild is due when nothing changed.
+    rebuild is due when nothing changed. Every compiled file counts, src/common
+    and capi.h included: the shared headers are half the kernel, and capi.h
+    declares the ABI, so an edit to either has to invalidate a build.
     """
     digest = hashlib.blake2s(digest_size=8)
-    for path in sorted((SRC / impl).glob("*.cu*")):
-        digest.update(path.name.encode())
-        digest.update(path.read_bytes())
+    for directory in (SRC / "common", SRC / impl):
+        for path in sorted(p for p in directory.iterdir()
+                           if p.suffix in (".cu", ".cuh", ".h")):
+            digest.update(str(path.relative_to(SRC)).encode())
+            digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
@@ -60,16 +61,16 @@ def compile_library(impl, out):
         RuntimeError: If nvcc fails, with its diagnostics.
     """
     src = SRC / impl
-    # Written beside the target and moved into place, so a reader never opens a
-    # half-written library and two builders cannot interleave.
+    # Staged and renamed, so a reader never opens a half-written library.
     staging = out.with_suffix(f".{os.getpid()}.tmp")
-    command = (["nvcc"] + NVCC_FLAGS + LIBRARY_FLAGS + [f"-I{src}"]
-               + [str(src / f"{impl}_capi.cu"), "-o", str(staging), "-lcuda"])
+    # -I on src/ resolves the "common/..." includes; on src/<impl>/ the rest.
+    command = (["nvcc"] + NVCC_FLAGS + LIBRARY_FLAGS + [f"-I{SRC}", f"-I{src}"]
+               + [str(src / "capi.cu"), "-o", str(staging), "-lcuda"])
     stubs = Path(os.environ.get("CUDA_HOME", "/usr/local/cuda"))
     stubs = stubs / "targets" / "x86_64-linux" / "lib" / "stubs"
     if stubs.is_dir():
-        # Linking against the stub lets a machine with no driver, such as a
-        # wheel builder, still produce a library; the SONAME is the real one.
+        # The stub lets a machine with no driver link; the SONAME is the real
+        # one, so it is the driver's libcuda that loads.
         command += [f"-L{stubs}"]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
@@ -81,12 +82,7 @@ def compile_library(impl, out):
 
 
 class _Ticker:
-    """Print the elapsed seconds while nvcc runs, which prints nothing itself.
-
-    nvcc is silent for the whole compile, so a caller with no notice cannot
-    tell a slow build from a hang and reaches for ctrl-C, which leaves the
-    build lock behind and makes the next run wait on it forever.
-    """
+    """Log the elapsed seconds while nvcc runs, which prints nothing itself."""
 
     def __init__(self, message, every=15):
         self.message, self.every, self.done = message, every, threading.Event()
@@ -133,8 +129,7 @@ def library_path(impl):
             recorded = json.loads(stamp.read_text())["sources"][impl]
         except Exception:
             recorded = None
-        # A stamp that disagrees means someone edited a kernel in an installed
-        # copy; build rather than run something else than the source says.
+        # A disagreeing stamp means an edited kernel in an installed copy.
         if recorded in (None, digest):
             return shipped
     out = CACHE / digest / name
@@ -154,8 +149,6 @@ def library_path(impl):
 def prebuild(impls=("mm", "smm")):
     """Resolve every library ahead of the first `gemm` call, building any that
     a wheel did not ship.
-
-        python -m opengemm
 
     Args:
         impls: Which libraries to resolve; both by default.

@@ -537,11 +537,9 @@ extern "C" void {name}(const void *a, const void *b, void *c,
   using G = Geom;{zero_c}
 
   // This library carries its own CUDA runtime state, whose current device
-  // starts at 0, so a caller working on any other one has to be followed. The
-  // operands say where that is; the stream cannot, because the default stream
-  // is 0 on every device. Asking costs about 80 ns, against a kernel measured
-  // in microseconds. The attributes below are per device too, so each one is
-  // configured the first time it is used.
+  // starts at 0, so a caller on any other one has to be followed. The operands
+  // say where that is; the stream cannot, since the default stream is 0 on
+  // every device. The attributes below are per device too.
   int device = 0;
   cudaPointerAttributes where{{}};
   if (cudaPointerGetAttributes(&where, a) == cudaSuccess)
@@ -633,11 +631,9 @@ extern "C" void {name}(const void *a, const void *b, const void *sfa,
                        const void *sfb, void *c, cudaStream_t stream) {{
   using G = Geom;{zero_c}
   // This library carries its own CUDA runtime state, whose current device
-  // starts at 0, so a caller working on any other one has to be followed. The
-  // operands say where that is; the stream cannot, because the default stream
-  // is 0 on every device. Asking costs about 80 ns, against a kernel measured
-  // in microseconds. The attributes below are per device too, so each one is
-  // configured the first time it is used.
+  // starts at 0, so a caller on any other one has to be followed. The operands
+  // say where that is; the stream cannot, since the default stream is 0 on
+  // every device. The attributes below are per device too.
   int device = 0;
   cudaPointerAttributes where{{}};
   if (cudaPointerGetAttributes(&where, a) == cudaSuccess)
@@ -746,11 +742,12 @@ def emit(dtype, m, n, k, config, stem):
     d = DTYPES[dtype]
     impl = d.impl
     src = SRC / impl
+    common = SRC / "common"
     entry = f"{impl}_{dtype}_{m}_{n}_{k}"
 
-    # The Policy and the Config around it are how the shared build is handed a
-    # configuration at runtime; here every field is a constant.
-    DEAD = ("struct Config", "struct Policy")
+    # The Policy is how the shared build is handed a configuration at runtime;
+    # here every field is a constant.
+    DEAD = ("struct Policy",)
 
     if impl == "mm":
         policy, bound = mm_policy(dtype, config, k)
@@ -758,7 +755,7 @@ def emit(dtype, m, n, k, config, stem):
         extra = {"SUPERGROUP": bound["supergroup"],
                  "L2_PROMO": bound["l2_promo"],
                  "SPLITS": bound["splits"], "WALK": bound["walk"]}
-        kernel_header, launch = "mm.cuh", MM_LAUNCH
+        launch = MM_LAUNCH
         elem_a, elem_b = policy["elem_a"], policy["elem_b"]
         if k % d.k_align:
             raise ValueError(
@@ -776,13 +773,19 @@ def emit(dtype, m, n, k, config, stem):
         extra = {"SUPERGROUP": bound["supergroup"],
                  "EPI_DIRECT": bound["epi_direct"],
                  "PERSISTENT": bound["persistent"]}
-        kernel_header, launch = "smm.cuh", SMM_LAUNCH
+        launch = SMM_LAUNCH
         types = drop_blocks(inline(src / "types.cuh"), DEAD)
 
+    # In the order a compiler would see them: what both kernels issue, the
+    # geometry, what this one issues, the scheduler, the kernel. src/common is
+    # inlined here too, since inline() drops the includes that would pull it in.
+    shared_body = take_includes(inline(common / "ptx.cuh"))
     types_body = take_includes(types)
-    device_body = take_includes(inline(src / "device_utils.cuh"))
-    kernel_body = take_includes(inline(src / kernel_header))
-    host_body = take_includes(inline(src / "host_utils.cuh"))
+    device_body = take_includes(inline(src / "ptx.cuh") + "\n\n"
+                                + inline(common / "clc.cuh"))
+    kernel_body = take_includes(inline(src / "kernel.cuh"))
+    host_body = take_includes(inline(common / "tmap.cuh") + "\n\n"
+                              + inline(src / "tmap.cuh"))
 
     constants = "\n".join(f"constexpr int {key} = {int(value)};"
                           for key, value in extra.items())
@@ -792,6 +795,7 @@ def emit(dtype, m, n, k, config, stem):
         + "\n// ---- the tuned configuration, as compile-time constants ----\n"
         f"constexpr int M = {m};\nconstexpr int N = {n};\n"
         f"constexpr int K = {k};\n{constants}\n\n"
+        + pin_policy(strip_static_asserts(shared_body), fields) + "\n\n"
         + pin_policy(strip_static_asserts(types_body), fields) + "\n\n"
         + pin_policy(strip_static_asserts(device_body), fields) + "\n\n"
         + pin_policy(strip_static_asserts(kernel_body), fields) + "\n")

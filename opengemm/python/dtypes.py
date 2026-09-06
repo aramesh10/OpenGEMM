@@ -7,9 +7,9 @@ Block-scaled formats ride `smm`: nvfp4, mxfp8, mxfp4.
 """
 import torch
 
-# Elem enum order of src/mm/types.cuh; the index is what the kernel library
-# takes. capi.py checks this against og_mm_elem_names() when it loads, so the
-# two cannot drift apart unnoticed.
+# The dense element names, in src/mm/types.cuh's Elem order. Only the names
+# cross the C ABI, never the ordinals, so a spelling that drifts from the
+# library's shows up as a registry row that fails to match.
 ELEMS = ("bf16", "f16", "tf32", "s8", "u8", "e4m3", "e5m2", "e3m2", "e2m3",
          "e2m1")
 ELEM_INDEX = {name: i for i, name in enumerate(ELEMS)}
@@ -72,8 +72,7 @@ class Dense:
 
         16 bytes' worth for the byte-aligned types, and a flat 128 values for
         the sub-byte ones, whose expanding tensor maps require it of
-        globalDim[0]. Both operands of a mixed pair are the same width, so one
-        element decides it.
+        globalDim[0].
         """
         return 128 if self.bits < 8 else 16 * 8 // self.bits
 

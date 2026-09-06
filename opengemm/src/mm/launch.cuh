@@ -1,47 +1,42 @@
-// Host side of the dense kernel: the registry as data, and the launch.
-// Nothing here knows about torch or Python, so this header compiles into a
-// library any caller can bind. mm.cu wraps it in the surface capi.h declares.
+// Host side of the dense kernel: the registry as data, and the launch. Nothing
+// here knows about torch or Python; capi.cu wraps it in the surface capi.h
+// declares.
 #pragma once
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cstdint>
-#include <cstdio>
 
 #include "capi.h"
-#include "device_utils.cuh"
-#include "host_utils.cuh"
-#include "mm.cuh"
+#include "common/launch.cuh"
+#include "common/registry.cuh"
+#include "kernel.cuh"
+#include "ptx.cuh"
 #include "registry.cuh"
+#include "tmap.cuh"
 #include "types.cuh"
 
 namespace opengemm_mm {
 
-inline int64_t ceil_div(int64_t a, int64_t b) { return (a + b - 1) / b; }
+using opengemm::ceil_div;
+using opengemm::error_text;
+using opengemm::set_error;
 
-// One buffer per thread, read back through og_mm_error(). Only a driver or
-// runtime failure fills it; a configuration that names no compiled kernel says
-// so through its status, and the caller has the registry to explain it with.
-inline thread_local char error_text[256];
-
-inline void set_error(const char *what, const char *detail) {
-  snprintf(error_text, sizeof error_text, "%s: %s", what,
-           detail ? detail : "unknown error");
-}
-
-// The harness names a configuration differently from the hardware: use_2cta
-// where the instruction says cta_group, output_n where it says mma_n,
-// epi_double where it says epi_mode, and cluster_m for the cluster's whole M
-// extent. This is the one place the two vocabularies meet, and REGISTRY_FIELDS
-// names the columns in the order policy_row writes them.
+// The registry reads back in the harness vocabulary, not the hardware's:
+// use_2cta for cta_group, output_n for mma_n, epi_double for epi_mode,
+// cluster_m for the cluster's whole M extent. REGISTRY_FIELDS names the
+// columns in the order policy_row writes them.
 inline constexpr int REGISTRY_COLS = 15;
 inline constexpr const char *REGISTRY_FIELDS =
     "elem_a,elem_b,use_2cta,block_m,output_n,stages,swap_ab,epi_hold,"
     "epi_double,epi_direct,use_clc,splits_expected,cluster_m,cluster_n,"
     "cluster_k";
-inline constexpr const char *ELEM_NAMES =
-    "bf16,f16,tf32,s8,u8,e4m3,e5m2,e3m2,e2m3,e2m1";
+// Every enumerated registry column and its spellings, so a caller decodes a
+// row without a table of its own. Both operands draw on the same Elem.
+#define OG_MM_ELEM_NAMES "bf16,f16,tf32,s8,u8,e4m3,e5m2,e3m2,e2m3,e2m1"
+inline constexpr const char *ENUMS =
+    "elem_a=" OG_MM_ELEM_NAMES ";elem_b=" OG_MM_ELEM_NAMES;
+#undef OG_MM_ELEM_NAMES
 
 constexpr std::array<int32_t, REGISTRY_COLS> policy_row(const Policy &p) {
   return {static_cast<int32_t>(p.elem_a),
@@ -61,49 +56,14 @@ constexpr std::array<int32_t, REGISTRY_COLS> policy_row(const Policy &p) {
           p.rk};
 }
 
-// Folded at compile time, so the table costs the build nothing.
-template <Policy... Ps>
-constexpr auto make_registry(mm_registry::List<Ps...>) {
-  std::array<int32_t, sizeof...(Ps) * REGISTRY_COLS> table{};
-  int at = 0;
-  for (const auto &row : {policy_row(Ps)...})
-    for (int32_t value : row) table[at++] = value;
-  return table;
-}
-
-inline constexpr auto REGISTRY = make_registry(mm_registry::All{});
+inline constexpr auto REGISTRY =
+    opengemm::make_table<REGISTRY_COLS>(policy_row, mm_registry::All{});
 inline constexpr int REGISTRY_ROWS =
     static_cast<int>(REGISTRY.size()) / REGISTRY_COLS;
 
-// The count of commas plus one, so a field name added without a column (or the
-// reverse) is a build error rather than a misread table.
-constexpr int name_count(const char *text) {
-  int names = 1;
-  for (const char *at = text; *at; ++at)
-    if (*at == ',') ++names;
-  return names;
-}
-static_assert(name_count(REGISTRY_FIELDS) == REGISTRY_COLS,
+static_assert(opengemm::name_count(REGISTRY_FIELDS) == REGISTRY_COLS,
               "REGISTRY_FIELDS names a different number of columns than "
               "policy_row writes");
-
-inline Policy policy_of(const OgMmConfig &c) {
-  return Policy{static_cast<Elem>(c.elem_a),
-                static_cast<Elem>(c.elem_b),
-                c.cta_group,
-                c.block_m,
-                c.mma_n,
-                c.stages,
-                c.swap_ab != 0,
-                c.epi_hold,
-                c.epi_mode,
-                c.epi_direct != 0,
-                c.use_clc != 0,
-                c.split_k != 0,
-                c.rm,
-                c.rn,
-                c.rk};
-}
 
 template <typename Kern>
 int max_active_clusters(Kern kern, dim3 cluster, dim3 block, int smem,
@@ -125,29 +85,8 @@ int max_active_clusters(Kern kern, dim3 cluster, dim3 block, int smem,
   return active;
 }
 
-// Once per instantiation per device: the driver has to be told this kernel
-// wants more than the default 48 KB of shared memory, and a cluster of more
-// than 8 CTAs is non-portable and has to be opted into. Both attributes are
-// per device, so a process that launches on a second one has to set them
-// again there; a single flag would configure whichever device happened to be
-// current first and leave the rest to fail the launch.
-template <Policy P>
-void configure_kernel(int device) {
-  static std::atomic<uint64_t> configured{0};
-  const uint64_t bit = uint64_t{1} << (device & 63);
-  if (configured.fetch_or(bit) & bit)
-    return;
-  if constexpr (Geom<P>::cluster_ctas > 8)
-    cudaFuncSetAttribute(mm_gemm_kernel<P>,
-                         cudaFuncAttributeNonPortableClusterSizeAllowed, 1);
-  cudaFuncSetAttribute(mm_gemm_kernel<P>,
-                       cudaFuncAttributeMaxDynamicSharedMemorySize,
-                       Geom<P>::smem_bytes);
-}
-
-// swap_ab is applied on the host: the kernel always computes the same
-// untransposed product, so what changes is which pointer, extent and row pitch
-// it is handed.
+// swap_ab is applied on the host: the kernel always computes the same product,
+// so what changes is which pointer, extent and pitch it is handed.
 struct Operands {
   void *a, *b;
   int   m, n, a_pitch, b_pitch;
@@ -184,7 +123,7 @@ int launch_cfg(void *a, void *b, void *c, int m, int n, int k, int a_pitch,
   using G = Geom<P>;
   constexpr int SMEM = G::smem_bytes;
   auto kern = mm_gemm_kernel<P>;
-  configure_kernel<P>(device);
+  opengemm::configure_kernel<mm_gemm_kernel<P>, G>(device);
 
   const Operands op = mma_operands<P>(a, b, m, n, a_pitch, b_pitch);
   const int mma_m = op.m;
@@ -249,13 +188,19 @@ int launch_cfg(void *a, void *b, void *c, int m, int n, int k, int a_pitch,
   return OG_OK;
 }
 
-// Returns whether the registry held the policy; `status` carries how the
-// launch went for the one that matched.
-template <Policy... Ps, typename... Args>
-bool launch_from_registry(mm_registry::List<Ps...>, const Policy &want,
-                          int &status, Args... args) {
-  return (... || (Ps == want ? (status = launch_cfg<Ps>(args...), true)
-                             : false));
+// One launcher per registry row, in the order make_table wrote them, so a row
+// read out of REGISTRY is the kernel it selects here.
+using LaunchFn = int (*)(void *, void *, void *, int, int, int, int, int, int,
+                         int, int, int, int, cudaStream_t);
+
+template <Policy... Ps>
+constexpr auto make_launchers(opengemm::List<Ps...>) {
+  return std::array<LaunchFn, sizeof...(Ps)>{&launch_cfg<Ps>...};
 }
+
+inline constexpr auto LAUNCHERS = make_launchers(mm_registry::All{});
+static_assert(static_cast<int>(LAUNCHERS.size()) == REGISTRY_ROWS,
+              "the launcher table and the registry disagree on how many "
+              "kernels this build compiles");
 
 }  // namespace opengemm_mm

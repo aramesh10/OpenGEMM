@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/registry.cuh"
 #include "types.cuh"
 
 // Every kernel this build compiles is named here, and nothing else is
@@ -12,7 +13,7 @@
 
 namespace smm_registry {
 
-template <Policy... Ps> struct List {};
+using opengemm::List;
 
 // One constructor per format:
 //   (cta_group, mma_n, swap_ab, epi_trade, deep, use_clc, rm, rn, rk)

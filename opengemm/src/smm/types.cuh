@@ -1,7 +1,13 @@
+// The block-scaled kernel's vocabulary: what an element and its scale are,
+// the Policy that names one kernel, and the Geom that reads a Policy as the
+// geometry the kernel is laid out in. Every field of Geom is a compile-time
+// constant, so the kernel below it has no configuration to carry.
 #pragma once
 
-#include <cuda.h>
 #include <cstdint>
+#include <cuda.h>
+
+#include "common/ptx.cuh"
 
 enum class SElem { e4m3, e5m2, e3m2, e2m3, e2m1_c8, e2m1 };
 enum class SFElem { ue4m3, ue8m0 };
@@ -9,8 +15,6 @@ enum class SKind { mxf8f6f4, mxf4, mxf4nvf4 };
 
 constexpr bool packed4(SElem e) { return e == SElem::e2m1; }
 constexpr int sbits_of(SElem e) { return packed4(e) ? 4 : 8; }
-constexpr int per_byte_of(SElem e) { return 8 / sbits_of(e); }
-
 constexpr int sformat_of(SElem e) {
     switch (e) {
     case SElem::e4m3:    return 0;
@@ -38,9 +42,6 @@ constexpr int nsf_for(int bits, SFElem sf) {
     return mma_k_for(bits) / sf_block_of(sf);
 }
 
-constexpr int WARP_SIZE = 32;
-constexpr int MBAR      = sizeof(int64_t);
-constexpr int CLC_DEPTH = 3;
 constexpr int EPI_BUF_BYTES  = 128 * 128 * sizeof(uint16_t);
 constexpr int SWIZZLE_ATOM   = 8 * 128;
 constexpr int SMEM_GRANT_CAP = 232448 - 2048;
@@ -182,11 +183,4 @@ struct Geom {
         | (static_cast<uint32_t>(mma_n) >> 3 << 17)
         | (static_cast<uint32_t>(sf_format_of(elem_sf)) << 23)
         | (static_cast<uint32_t>(mma_m) >> 4 << 24);
-};
-
-struct Config {
-    Policy policy;
-    int  supergroup = 1;
-    int  epi_direct = 0;
-    bool persistent = true;
 };

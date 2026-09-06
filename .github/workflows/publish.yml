@@ -6,11 +6,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  # The kernels are compiled here, once, so the wheel carries them. nvcc is
-  # needed; a GPU is not -- nothing in the build touches a device. CUDA 12.9 is
-  # the oldest toolkit that targets sm_100a, and building against it keeps the
-  # driver floor as low as the hardware allows: the runtime is linked
-  # statically, so the toolkit's minimum driver becomes every user's.
+  # The kernels are compiled here, once, so the wheel carries them; nvcc is
+  # needed, a GPU is not. CUDA 12.9 is the oldest toolkit that targets sm_100a,
+  # and the runtime is linked statically, so its minimum driver becomes every
+  # user's.
   wheel:
     runs-on: ubuntu-latest
     container: nvidia/cuda:12.9.1-devel-ubuntu22.04
@@ -28,8 +27,7 @@ jobs:
           for so in $(find build -name '*.so'); do
             echo "== $so"; readelf -d "$so" | grep NEEDED
           done
-      # libcuda comes from the driver on the user's machine and must stay
-      # external; vendoring it would ship a build-time driver to everyone.
+      # libcuda comes from the user's driver and must stay external.
       - name: Retag for manylinux
         run: |
           python3 -m auditwheel repair \
@@ -44,8 +42,8 @@ jobs:
           name: wheel
           path: dist/
 
-  # A source distribution for anyone off sm_100a, on another CUDA, or editing
-  # kernels: it ships no libraries and compiles on first use.
+  # A source distribution for anyone on another CUDA or editing kernels: it
+  # ships no libraries and compiles on first use.
   sdist:
     runs-on: ubuntu-latest
     steps:
