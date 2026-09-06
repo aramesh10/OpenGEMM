@@ -2,8 +2,7 @@
 
 import torch
 
-from .bench import config_args
-from .build import extension
+from . import capi
 from .dtypes import DENSE_OF_TORCH, DTYPES, ELEM_INDEX, SCALED_OF_TORCH
 from .tune import resolve_config
 
@@ -71,12 +70,8 @@ def launcher(dtype, m, n, k):
     key = (dtype, m, n, k)
     launch = _launchers.get(key)
     if launch is None:
-        d = DTYPES[dtype]
         config = resolve_config(dtype, m, n, k)
-        args = config_args(config, d.impl)
-        if d.impl == "mm":
-            args += (ELEM_INDEX[d.elem_a], ELEM_INDEX[d.elem_b])
-        launch = _launchers[key] = extension(d.impl).launcher(*args)
+        launch = _launchers[key] = capi.launcher(dtype, config, m, n, k)
     return launch
 
 
@@ -86,7 +81,8 @@ def gemm(a, b, sfa=None, sfb=None, out=None, atype=None, btype=None):
     Both operands are row-major with K innermost. Every call runs a measured
     configuration from configs.json; a (dtype, shape) with no entry is tuned on
     its first call, a few minutes on the GPU, and the winner is stored. The
-    first call builds the extension.
+    first call also loads the kernel library, compiling it when a wheel did
+    not ship one.
 
     Dense: the element is inferred from the dtype (bfloat16, float16, float32
     computed as tf32, int8, float8_e4m3fn, float8_e5m2). uint8 holds u8, e3m2,

@@ -5,9 +5,8 @@ axes. Each is checked for correctness and timed; the fastest wins, or within
 1.5% the plainer one. The winner is re-measured against cuBLAS and written
 to configs.json, which `gemm()` dispatches from.
 """
-from . import bench
-from .build import extension
-from .dtypes import DTYPES, ELEM_INDEX
+from . import bench, capi
+from .dtypes import DTYPES
 from .log import log
 
 TIE = 0.015
@@ -35,16 +34,16 @@ def unique(rows):
     return out
 
 
-def mm_candidates(ext, m, n, k, dtype):
+def mm_candidates(m, n, k, dtype):
     """Return the dense candidate space for a shape: every compiled kernel of
     this element pair that fits it, crossed with split-K, supergroup and L2
     promotion.
     """
-    want = (ELEM_INDEX[dtype.elem_a], ELEM_INDEX[dtype.elem_b])
+    want = (dtype.elem_a, dtype.elem_b)
     k_tiles = -(-k // 128)
     splits = split_options(k_tiles)
     space = []
-    for e in unique(ext.registry()):
+    for e in unique(capi.registry("mm")):
         if (e["elem_a"], e["elem_b"]) != want:
             continue
         mma_n = m if e["swap_ab"] else n
@@ -76,16 +75,15 @@ def mm_candidates(ext, m, n, k, dtype):
     return space
 
 
-def smm_candidates(ext, m, n, k, dtype):
+def smm_candidates(m, n, k, dtype):
     """Return the block-scaled candidate space for a shape: every compiled
     kernel of this format that fits it, crossed with supergroup and
     persistence.
     """
-    want = next((elem, sf) for name, elem, sf in ext.formats()
-                if name == dtype.name)
+    want = (dtype.elem, dtype.sf)
     block_k = 1024 // (4 if dtype.elem == "e2m1" else 8)
     space = []
-    for e in unique(ext.registry()):
+    for e in unique(capi.registry("smm")):
         if (e["elem"], e["sf"]) != want:
             continue
         mma_n = m if e["swap_ab"] else n
@@ -148,7 +146,7 @@ def label(config):
     return text
 
 
-def tune(name, m, n, k, ext=None):
+def tune(name, m, n, k):
     """Sweep one (dtype name, shape), store the winner and return it.
 
     Args:
@@ -156,7 +154,6 @@ def tune(name, m, n, k, ext=None):
         m: Rows of A and C.
         n: Rows of B and columns of C.
         k: Reduction length in elements.
-        ext: The built extension; loaded on demand when None.
 
     Returns:
         The winning configuration, as stored in configs.json.
@@ -165,19 +162,18 @@ def tune(name, m, n, k, ext=None):
         RuntimeError: If no candidate is correct.
     """
     dtype = DTYPES[name]
-    ext = ext or extension(dtype.impl)
     buffers = bench.make_input_set(m, n, k, dtype)
     space = (mm_candidates if dtype.impl == "mm" else smm_candidates)(
-        ext, m, n, k, dtype)
+        m, n, k, dtype)
     log(f"tuning {name} {m}x{n}x{k} on {bench.env_stamp()['gpu']}: "
         f"{len(space)} candidates")
 
     ranked, rejected = [], 0
     for config in space:
-        if bench.correctness_error(ext, buffers, config, dtype, k):
+        if bench.correctness_error(buffers, config, dtype, m, n, k):
             rejected += 1
             continue
-        kernel = bench.runner(ext, buffers, config, dtype)
+        kernel = bench.runner(buffers, config, dtype, m, n, k)
         warmup, iterations = bench.plan(kernel)
         ranked.append((bench.timed(kernel, warmup, iterations, repeats=3),
                        config))
@@ -189,7 +185,7 @@ def tune(name, m, n, k, ext=None):
     best = min((row for row in ranked if row[0] <= fastest * (1 + TIE)),
                key=lambda row: simplicity(row[1]))[1]
 
-    kernel = bench.runner(ext, buffers, best, dtype)
+    kernel = bench.runner(buffers, best, dtype, m, n, k)
     baseline, why = bench.baseline_for(buffers, dtype)
     warmup, iterations = bench.report_plan(kernel)
     us = bench.timed(kernel, warmup, iterations)

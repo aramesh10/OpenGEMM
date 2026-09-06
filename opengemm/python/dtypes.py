@@ -7,8 +7,9 @@ Block-scaled formats ride `smm`: nvfp4, mxfp8, mxfp4.
 """
 import torch
 
-# Elem enum order of src/mm/types.cuh; the index is what the extension
-# takes.
+# Elem enum order of src/mm/types.cuh; the index is what the kernel library
+# takes. capi.py checks this against og_mm_elem_names() when it loads, so the
+# two cannot drift apart unnoticed.
 ELEMS = ("bf16", "f16", "tf32", "s8", "u8", "e4m3", "e5m2", "e3m2", "e2m3",
          "e2m1")
 ELEM_INDEX = {name: i for i, name in enumerate(ELEMS)}
@@ -64,6 +65,17 @@ class Dense:
     def tolerance(self, k):
         """Return `(rtol, atol)` for a reduction of length `k`."""
         return _scaled_tolerance(self.rtol, self.atol, k)
+
+    @property
+    def k_align(self):
+        """Return the K multiple a row must be for TMA to address it.
+
+        16 bytes' worth for the byte-aligned types, and a flat 128 values for
+        the sub-byte ones, whose expanding tensor maps require it of
+        globalDim[0]. Both operands of a mixed pair are the same width, so one
+        element decides it.
+        """
+        return 128 if self.bits < 8 else 16 * 8 // self.bits
 
     def k_extent(self, k):
         """Return the row extent of a `(rows, K)` operand as torch sees it."""

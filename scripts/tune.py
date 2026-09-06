@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from opengemm import DTYPES  # noqa: E402
 from opengemm.python import bench  # noqa: E402
-from opengemm.python.build import extension  # noqa: E402
 from opengemm.python.tune import tune  # noqa: E402
 
 
@@ -31,10 +30,9 @@ def main():
     group.add_argument("--all", action="store_true",
                        help="every shape in shapes.jsonc")
     args = parser.parse_args()
-    ext = extension(DTYPES[args.dtype].impl)
     for m, n, k in ([tuple(args.shape)] if args.shape else bench.load_shapes()):
         try:
-            tune(args.dtype, m, n, k, ext)
+            tune(args.dtype, m, n, k)
         except RuntimeError as exc:
             print(exc, flush=True)
 

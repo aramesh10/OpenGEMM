@@ -6,7 +6,47 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  # The kernels are compiled here, once, so the wheel carries them. nvcc is
+  # needed; a GPU is not -- nothing in the build touches a device. CUDA 12.9 is
+  # the oldest toolkit that targets sm_100a, and building against it keeps the
+  # driver floor as low as the hardware allows: the runtime is linked
+  # statically, so the toolkit's minimum driver becomes every user's.
+  wheel:
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:12.9.1-devel-ubuntu22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            python3 python3-pip python3-venv patchelf
+          python3 -m pip install --upgrade pip build auditwheel
+      - run: python3 -m build --wheel
+      - name: Show what the libraries link
+        run: |
+          for so in $(find build -name '*.so'); do
+            echo "== $so"; readelf -d "$so" | grep NEEDED
+          done
+      # libcuda comes from the driver on the user's machine and must stay
+      # external; vendoring it would ship a build-time driver to everyone.
+      - name: Retag for manylinux
+        run: |
+          python3 -m auditwheel repair \
+            --plat manylinux_2_35_x86_64 \
+            --exclude libcuda.so.1 \
+            --wheel-dir dist-manylinux dist/*.whl
+          rm dist/*.whl
+          mv dist-manylinux/*.whl dist/
+          ls -l dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/
+
+  # A source distribution for anyone off sm_100a, on another CUDA, or editing
+  # kernels: it ships no libraries and compiles on first use.
+  sdist:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,15 +54,15 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install build twine
-      - run: python -m build
+      - run: OPENGEMM_SKIP_KERNELS=1 python -m build --sdist
       - run: python -m twine check dist/*
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: sdist
           path: dist/
 
   publish:
-    needs: build
+    needs: [wheel, sdist]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -30,6 +70,6 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
           path: dist/
+          merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1

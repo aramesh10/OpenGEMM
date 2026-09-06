@@ -31,4 +31,5 @@ Issues = "https://github.com/aramesh10/OpenGEMM/issues"
 packages = ["opengemm", "opengemm.python"]
 
 [tool.setuptools.package-data]
-opengemm = ["shapes.jsonc", "src/*/*.cu", "src/*/*.cuh", "src/*/configs.json"]
+opengemm = ["shapes.jsonc", "src/*/*.cu", "src/*/*.cuh", "src/*/*.h",
+            "src/*/configs.json", "lib/*.so", "lib/stamp.json"]

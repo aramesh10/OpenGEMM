@@ -28,10 +28,26 @@ pip install -e .
 
 Requirements: 
 - sm_100a
-- CUDA 12.9+ with `nvcc` on the path
-- PyTorch 2.8+.
+- PyTorch 2.8+
+- CUDA 12.9+ with `nvcc` on the path, for a clone, an edited kernel, or
+  `emit_kernel`. A wheel ships the kernels already compiled and needs only the
+  driver.
 
-The first `gemm()` call builds the extension (a few minutes, then cached by torch).
+The kernels are compiled into two libraries that link no libtorch and no
+libpython, so one build serves every PyTorch and Python version. A wheel ships
+them; a clone compiles them on the first `gemm()` call, about 25 s for both.
+To pay that at install time instead:
+
+```bash
+python -m opengemm
+```
+
+Or from Python, `og.prebuild()`. Either is a no-op once the libraries exist,
+so it is safe in a Dockerfile, a post-install step or a test fixture. The
+result is cached under `OPENGEMM_CACHE` (default `~/.cache/opengemm`), keyed
+by a digest of the sources it was built from, so editing a kernel rebuilds and
+a reinstall does not. `OPENGEMM_JIT=1` forces the build even when a wheel
+shipped one.
 
 ## Agent Quickstart
 
@@ -96,6 +112,9 @@ CUDA_VISIBLE_DEVICES=0 python scripts/test.py                           # correc
 
 `tune.py` ablates every compiled configuration for a shape and records the best performing config to `configs.json`
 
+`CUDA_VISIBLE_DEVICES` above pins tuning to one GPU for repeatable timings; it
+is not required. `gemm()` launches on whichever device its operands are on.
+
 ## Standalone kernels
 
 ```bash
@@ -108,6 +127,11 @@ OpenGEMM can also emit the optimized CUDA files for a kernel given a shape and d
 ```bash
 nvcc -O3 -std=c++20 -gencode=arch=compute_100a,code=sm_100a --expt-relaxed-constexpr -shared -Xcompiler -fPIC -lcuda <KERNEL_FILE>.cu -o <KERNEL_FILE>.so
 ```
+
+The entry point is `extern "C" void mm_<dtype>_<M>_<N>_<K>(a, b, c, stream)`,
+or `smm_<dtype>_<M>_<N>_<K>(a, b, sfa, sfb, c, stream)` for a block-scaled
+format. It reads which device the operands are on and launches there, so it
+does not care what the caller's current device is.
 
 `emit_kernel` reads only shapes and dtypes, so meta tensors work:
 `emit_kernel(torch.empty(4096, 4096, dtype=torch.bfloat16, device="meta"), ...)`.
