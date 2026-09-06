@@ -49,12 +49,8 @@ def mm_candidates(m, n, k, dtype):
         mma_n = m if e["swap_ab"] else n
         if e["cluster_k"] > k_tiles:
             continue
-        # A swapped kernel tiles M with output_n; one wider than M, rounded to
-        # the 8 rows a box takes, is wasted work.
         if e["swap_ab"] and min(e["output_n"], 128) > -(-m // 8) * 8:
             continue
-        # The accumulating epilogue is compiled in, so a kernel is either
-        # split-K or not.
         entry_splits = [s for s in splits
                         if (s > 1) == bool(e["splits_expected"])]
         if not entry_splits:
@@ -87,10 +83,8 @@ def smm_candidates(m, n, k, dtype):
         if (e["elem"], e["sf"]) != want:
             continue
         mma_n = m if e["swap_ab"] else n
-        # Narrow tiles are for shapes they cover in one go.
         if e["output_n"] % 128 and e["output_n"] < mma_n:
             continue
-        # A 2-CTA tile needs a whole K block.
         if e["use_2cta"] and k < block_k:
             continue
         config = {key: value for key, value in e.items()
@@ -98,7 +92,6 @@ def smm_candidates(m, n, k, dtype):
         for flag in ("use_2cta", "use_clc", "swap_ab"):
             config[flag] = bool(config[flag])
         num_n = -(-mma_n // e["output_n"])
-        # Cluster launch control is itself persistent.
         persistents = (1,) if e["use_clc"] else (1, 0)
         for supergroup in supergroups(num_n):
             for persistent in persistents:

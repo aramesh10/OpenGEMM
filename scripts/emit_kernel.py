@@ -17,9 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import torch  # noqa: E402
+import torch
 
-from opengemm import DTYPES, emit_kernel  # noqa: E402
+from opengemm import DTYPES, emit_kernel
 
 
 def meta_operands(dtype, m, n, k):

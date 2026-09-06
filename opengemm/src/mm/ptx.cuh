@@ -1,7 +1,3 @@
-// The PTX only the dense kernel issues: the tile walks, the MMA over the four
-// dense kinds, and the loads and stores whose shape depends on them. What both
-// kernels issue the same way is in common/ptx.cuh, which this pulls in so a
-// reader of the kernel has one include to follow.
 #pragma once
 
 #include <cstdint>
@@ -18,14 +14,10 @@ __device__ __forceinline__ uint32_t cluster_ctaid_x() {
   return x;
 }
 
-// The dense kernel hands shared memory across the cluster, so its arrive has
-// to order the writes that came before it.
 __device__ __forceinline__ void cluster_sync() {
   cluster_arrive();
   cluster_wait();
 }
-
-// ---- the tile walk ----
 
 __host__ __device__ __forceinline__ int walk_sgn(int v) {
   return (v > 0) - (v < 0);
@@ -126,8 +118,6 @@ __device__ __forceinline__ void tile_coords(int tile_id, int num_m, int num_n,
     m_idx = num_m - 1 - m_idx;
 }
 
-// ---- mbarriers the dense kernel waits on with a backoff ----
-
 __device__ __forceinline__ void mbar_wait_ns(uint32_t addr, uint32_t phase) {
   asm volatile("{\n\t.reg .pred P;\n\tWAIT:\n\t"
                "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 "
@@ -147,8 +137,6 @@ __device__ __forceinline__ void mbar_wait_cluster_ns(int addr, int phase) {
                "bra.uni WAIT;\n\tDONE:\n\t}" ::"r"(addr), "r"(phase)
                : "memory");
 }
-
-// ---- TMA loads ----
 
 template <int CTA_GROUP>
 __device__ __forceinline__ void tma_load_2d(int dst, const void *tmap, int x,
@@ -189,8 +177,6 @@ tma_load_2d_multicast(int dst, const void *tmap, int x, int y, int mbar,
   }
 }
 
-// ---- shared-memory stores ----
-
 __device__ __forceinline__ void st_shared_f32(int addr, float val) {
   asm volatile("st.shared.f32 [%0], %1;" ::"r"(addr), "f"(val) : "memory");
 }
@@ -216,8 +202,6 @@ __device__ __forceinline__ void st_shared_v4b(int addr, T a, T b, T c, T d) {
   __builtin_memcpy(w, in, sizeof(w));
   st_shared_v4(addr, w[0], w[1], w[2], w[3]);
 }
-
-// ---- the MMA and the accumulator reads it fills ----
 
 template <int CTA_GROUP, Kind K>
 __device__ __forceinline__ void tcgen05_mma(int d, uint64_t a, uint64_t b,

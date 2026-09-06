@@ -42,12 +42,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import torch  # noqa: E402
+import torch
 
-from opengemm import DTYPES  # noqa: E402
-from opengemm.python import bench  # noqa: E402
-from opengemm.python.build import ROOT  # noqa: E402
-from opengemm.python.tune import resolve_config  # noqa: E402
+from opengemm import DTYPES
+from opengemm.python import bench
+from opengemm.python.build import ROOT
+from opengemm.python.tune import resolve_config
 
 LOW_SPEEDUP = 0.95
 BAD_SPEEDUP = 0.90

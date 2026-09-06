@@ -1,16 +1,11 @@
-// The cluster launch control ring, which both kernels run the same way: a
-// cluster asks the hardware for its next tile CLC_DEPTH tiles ahead, and reads
-// the answer back when it gets there. Only the leader issues; the peer arrives
-// so the leader knows the slot is free on every CTA of the cluster.
 #pragma once
 
 #include "common/ptx.cuh"
 
-// Three mbarrier arrays, CLC_DEPTH deep, and the handles the answers land in.
 struct Clc {
-  int    arrived;   // the answer for this slot has landed
-  int    finished;  // every CTA has read this slot, so it can be reused
-  int    ready;     // the peer CTA has reached this slot
+  int    arrived;
+  int    finished;
+  int    ready;
   uint4 *handles;
 };
 
@@ -31,8 +26,6 @@ __device__ __forceinline__ void clc_issue(const Clc &clc, int tile_idx,
   clc_schedule(&clc.handles[slot], clc.arrived + slot * MBAR);
 }
 
-// The next tile for this cluster, or -1 when the schedule is spent. Without
-// cluster launch control the walk is the fixed persistent stride instead.
 template <int CTA_GROUP, bool USE_CLC>
 __device__ __forceinline__ int next_tile(const Clc &clc, int tile_id,
                                          int tile_idx, int num_clusters) {

@@ -9,8 +9,6 @@ disagree about what a stored configuration means.
 
 from .dtypes import DTYPES
 
-# Every configs.json key each kernel takes; anything else was written for a
-# different build and must not be silently ignored.
 CONFIG_KEYS = {
     "mm": ("use_2cta", "output_n", "use_clc", "supergroup", "swap_ab",
            "k_pad", "epi_direct", "epi_hold", "cluster_n", "stages",
@@ -140,8 +138,6 @@ def smm_policy(dtype, config):
     check(config, "smm")
     d = DTYPES[dtype]
     group = 2 if config["use_2cta"] else 1
-    # A block-scaled sweep records no cluster for the one-CTA tiles, where the
-    # cluster is the CTA group itself.
     cluster_m = config.get("cluster_m") or group
     policy = {
         "elem_a": d.elem,

@@ -1,7 +1,3 @@
-// The PTX both kernels issue the same way: the mbarrier, TMA, cluster and
-// tcgen05 instructions whose spelling does not depend on what the operands
-// are. What a kernel issues differently -- the MMA itself, the loads that
-// carry a scale factor, the tile walk -- stays in its own src/<impl>/ptx.cuh.
 #pragma once
 
 #include <cstdint>
@@ -10,10 +6,8 @@
 #include <cuda_runtime.h>
 
 constexpr int WARP_SIZE = 32;
-constexpr int MBAR      = sizeof(int64_t);  // one mbarrier, in bytes
-constexpr int CLC_DEPTH = 3;                // cluster launch control slots
-
-// ---- shared-memory descriptors ----
+constexpr int MBAR      = sizeof(int64_t);
+constexpr int CLC_DEPTH = 3;
 
 __device__ __forceinline__ constexpr uint64_t desc_enc(uint64_t x) {
   return (x & 0x3FFFFULL) >> 4;
@@ -24,11 +18,6 @@ __device__ __forceinline__ uint64_t make_ab_desc(int addr) {
   return desc_enc(addr) | (desc_enc(SBO) << 32) | (1ULL << 46) | (1ULL << 62);
 }
 
-// ---- cluster ----
-
-// The release arrive orders this CTA's writes before the wait; the relaxed one
-// only counts. A kernel that hands shared memory across the cluster needs the
-// first, one that is only lining its CTAs up needs the second.
 __device__ __forceinline__ void cluster_arrive() {
   asm volatile("barrier.cluster.arrive.aligned;" ::: "memory");
 }
@@ -65,8 +54,6 @@ __device__ __forceinline__ uint32_t elect_sync() {
   return pred;
 }
 
-// ---- programmatic dependent launch ----
-
 __device__ __forceinline__ void pdl_wait() {
   asm volatile("griddepcontrol.wait;" ::: "memory");
 }
@@ -74,8 +61,6 @@ __device__ __forceinline__ void pdl_wait() {
 __device__ __forceinline__ void pdl_arrive() {
   asm volatile("griddepcontrol.launch_dependents;" ::: "memory");
 }
-
-// ---- cluster launch control ----
 
 __device__ __forceinline__ void clc_schedule(uint4 *handle,
                                              int completion_mbar) {
@@ -88,7 +73,6 @@ __device__ __forceinline__ void clc_schedule(uint4 *handle,
       : "memory");
 }
 
-// .x says whether a tile was won; .y is the first CTA id of the cluster it is.
 __device__ __forceinline__ uint4 clc_query(uint4 *handle) {
   uint4 result;
   const uint32_t handle_addr =
@@ -114,8 +98,6 @@ __device__ __forceinline__ uint4 clc_query(uint4 *handle) {
                : "memory");
   return result;
 }
-
-// ---- mbarriers ----
 
 __device__ __forceinline__ void mbar_init(int addr, int count) {
   asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;" ::"r"(addr),
@@ -166,8 +148,6 @@ __device__ __forceinline__ void mbar_arrive_cluster_to(int mbar, int dst_cta) {
                : "memory");
 }
 
-// ---- TMA ----
-
 __device__ __forceinline__ void prefetch_tensormap(const void *tmap) {
   asm volatile("prefetch.tensormap [%0];" ::"l"(tmap) : "memory");
 }
@@ -191,8 +171,6 @@ __device__ __forceinline__ void tma_store_commit() {
 template <int N> __device__ __forceinline__ void tma_store_wait() {
   asm volatile("cp.async.bulk.wait_group %0;" ::"n"(N) : "memory");
 }
-
-// ---- tensor memory ----
 
 template <int CTA_GROUP, int COLS>
 __device__ __forceinline__ void tmem_alloc(int smem_addr) {

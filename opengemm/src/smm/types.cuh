@@ -1,7 +1,3 @@
-// The block-scaled kernel's vocabulary: what an element and its scale are,
-// the Policy that names one kernel, and the Geom that reads a Policy as the
-// geometry the kernel is laid out in. Every field of Geom is a compile-time
-// constant, so the kernel below it has no configuration to carry.
 #pragma once
 
 #include <cstdint>

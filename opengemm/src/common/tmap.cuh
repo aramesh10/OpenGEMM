@@ -1,15 +1,9 @@
-// The one call both host sides make to describe an operand to the TMA unit.
-// Every tensor map either build encodes is a 2-D tiled one over a row-major
-// matrix, so only the element type, the tile and the swizzle change; the
-// scale-factor map, which is 3-D, stays in src/smm/tmap.cuh.
 #pragma once
 
 #include <cstdint>
 #include <cuda.h>
 #include <cudaTypedefs.h>
 
-// `row_bytes` is the distance between rows in memory, which is the row extent
-// only when the operand is packed. A tile is `tile_rows` by `tile_cols`.
 inline CUresult tmap_2d(CUtensorMap *tmap, CUtensorMapDataType dtype,
                         void *ptr, uint64_t rows, uint64_t cols,
                         uint32_t tile_rows, uint32_t tile_cols,

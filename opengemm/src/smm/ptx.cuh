@@ -1,8 +1,3 @@
-// The PTX only the block-scaled kernel issues: the scale-factor descriptor and
-// the 3-D loads that carry it, the MMA over the block-scaled kinds, and the
-// tensor-memory allocation a CTA pair needs. What both kernels issue the same
-// way is in common/ptx.cuh, which this pulls in so the kernel has one include
-// to follow.
 #pragma once
 
 #include <cstdint>
@@ -14,8 +9,6 @@
 #include "common/ptx.cuh"
 #include "types.cuh"
 
-// ---- descriptors, the cluster and the CTA pair ----
-
 __device__ __forceinline__ uint64_t make_sf_desc(int addr) {
     constexpr uint64_t SBO = 8ULL * 16;
     return desc_enc(addr) | (desc_enc(SBO) << 32) | (1ULL << 46);
@@ -25,8 +18,6 @@ __device__ __forceinline__ uint32_t cluster_ctarank() {
     uint32_t r; asm volatile("mov.u32 %0, %%cluster_ctarank;" : "=r"(r)); return r;
 }
 
-// The block-scaled kernel only lines its CTAs up here, so the relaxed arrive
-// is enough.
 __device__ __forceinline__ void cluster_sync() {
     cluster_arrive_relaxed();
     cluster_wait();
@@ -43,8 +34,6 @@ __device__ __forceinline__ void mbar_arrive_pair_leader(int mbar) {
     asm volatile("mbarrier.arrive.shared::cluster.b64 _, [%0];" :: "r"(m) : "memory");
 }
 
-// ---- the tile walk ----
-
 __device__ __forceinline__ void tile_coords(int tile_id, int num_m, int num_n,
                                             int supergroup, int& m_idx, int& n_idx) {
     const int tpg = num_m * supergroup;
@@ -55,8 +44,6 @@ __device__ __forceinline__ void tile_coords(int tile_id, int num_m, int num_n,
     m_idx = idx / ns;
     n_idx = first_n + idx % ns;
 }
-
-// ---- TMA loads ----
 
 template <int NUM_SM>
 __device__ __forceinline__ void tma_load_2d(int dst, const void* tmap, int x, int y, int mbar) {
@@ -108,8 +95,6 @@ __device__ __forceinline__ void tma_load_3d_multicast(int dst, const void* tmap,
     }
 }
 
-// ---- conversion and shared-memory stores ----
-
 __device__ __forceinline__ uint16_t cvt_bf16(float x) {
     uint16_t v;
     asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(v) : "f"(x));
@@ -132,8 +117,6 @@ __device__ __forceinline__ void st_shared_v4(int addr, uint32_t a, uint32_t b,
                  :: "r"(addr), "r"(a), "r"(b), "r"(c), "r"(d) : "memory");
 }
 
-// ---- tensor memory ----
-
 template <int SM>
 __device__ __forceinline__ void tmem_relinquish() {
     if constexpr (SM == 1)
@@ -142,23 +125,12 @@ __device__ __forceinline__ void tmem_relinquish() {
         asm volatile("tcgen05.relinquish_alloc_permit.cta_group::2.sync.aligned;");
 }
 
-// All of tensor memory for this CTA, asked for the way the allocator wants:
-// the base address lands in a shared-memory slot nothing else writes (the
-// TMA ring starts at the dynamic base, and a stage lands there moments
-// later), and the permit to allocate is given up as soon as the allocation
-// is made, so the next CTA on this SM can allocate. Without this, a peer CTA
-// of a 2-CTA cluster could reach its dealloc with no allocation on record
-// and trap: reproducibly, after a few hundred launches followed by any other
-// kernel on the device. The kernel addresses tensor memory from column 0,
-// which the allocation of all 512 columns guarantees.
 template <int SM, int COLS>
 __device__ __forceinline__ void tmem_alloc_all(uint32_t *slot) {
     tmem_alloc<SM, COLS>(static_cast<int>(__cvta_generic_to_shared(slot)));
     __syncwarp();
     tmem_relinquish<SM>();
 }
-
-// ---- the MMA and the scale copy that feeds it ----
 
 template <int SM>
 __device__ __forceinline__ void tcgen05_cp(int taddr, uint64_t s_desc) {

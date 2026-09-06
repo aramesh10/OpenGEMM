@@ -6,7 +6,6 @@ from . import capi
 from .dtypes import DENSE_OF_TORCH, DTYPES, ELEM_INDEX, SCALED_OF_TORCH
 from .tune import resolve_config
 
-# Keyed by (dtype name, M, N, K).
 _launchers = {}
 
 
@@ -119,8 +118,6 @@ def gemm(a, b, sfa=None, sfb=None, out=None, atype=None, btype=None):
     if launch is None:
         if not a.is_cuda:
             raise TypeError("a and b must be CUDA tensors")
-        # A sweep allocates and times on the current device; make it the
-        # operands'.
         with torch.cuda.device(a.device):
             launch = launcher(*key)
     if sfa is None:

@@ -50,7 +50,6 @@ def drop_blocks(text, markers, replace=None):
             out.append(lines[i])
             i += 1
             continue
-        # A dropped construct takes its template header with it.
         while out and out[-1].startswith("template <"):
             out.pop()
         if replace and marker in replace:
@@ -126,7 +125,6 @@ def pin_policy(text, values):
     text = text.replace("Geom<P>", "Geom")
     for name, literal in values.items():
         text = re.sub(rf"\bP\.{name}\b", literal, text)
-    # Fold the ternaries the substitution just made constant.
     text = re.sub(r"\btrue \? ([^;\n]*?) : [^;\n]*?;", r"\1;", text)
     text = re.sub(r"\bfalse \? [^;\n]*? : ([^;\n]*?);", r"\1;", text)
     return text
@@ -268,8 +266,6 @@ def flatten_geom(text, members, values, tmaps, acc_type):
                          f"{'true' if values[name] else 'false'};")
         else:
             lines.append(f"constexpr {kind} G_{name} = {values[name]};")
-    # The constants go with the config block at the top: the device helpers
-    # are monomorphized against them and need them declared first.
     text = drop_blocks(text, ("struct Geom",))
     anchor = "// ---- the tuned configuration, as compile-time constants ----"
     assert anchor in text, "config constant block not found"
@@ -745,8 +741,6 @@ def emit(dtype, m, n, k, config, stem):
     common = SRC / "common"
     entry = f"{impl}_{dtype}_{m}_{n}_{k}"
 
-    # The Policy is how the shared build is handed a configuration at runtime;
-    # here every field is a constant.
     DEAD = ("struct Policy",)
 
     if impl == "mm":
@@ -776,9 +770,6 @@ def emit(dtype, m, n, k, config, stem):
         launch = SMM_LAUNCH
         types = drop_blocks(inline(src / "types.cuh"), DEAD)
 
-    # In the order a compiler would see them: what both kernels issue, the
-    # geometry, what this one issues, the scheduler, the kernel. src/common is
-    # inlined here too, since inline() drops the includes that would pull it in.
     shared_body = take_includes(inline(common / "ptx.cuh"))
     types_body = take_includes(types)
     device_body = take_includes(inline(src / "ptx.cuh") + "\n\n"
@@ -817,7 +808,6 @@ def emit(dtype, m, n, k, config, stem):
             if impl == "mm" else
             "const void *a, const void *b, const void *sfa, const void *sfb,\n"
             "                       void *c, cudaStream_t stream")
-    # The accumulating epilogue adds into C, so C has to start at zero.
     accumulates = (int(extra.get("SPLITS", 1)) > 1
                    or int(values.get("rk", 1)) > 1)
     zero_c = ("\n  cudaMemsetAsync(c, 0, (size_t)M * N * sizeof(%s), stream);"
@@ -834,9 +824,6 @@ def emit(dtype, m, n, k, config, stem):
     header = strip_comments(header)
     source = strip_comments(f"#include \"{stem}.cuh\"\n\n" + source)
 
-    # Every constant is a literal now, the kernel's own constexpr locals
-    # included: fold every branch and ternary on them, bind the helper
-    # templates, and drop what nothing reaches.
     kernel = f"{impl}_gemm_kernel"
     with tempfile.TemporaryDirectory(prefix="opengemm_emit_") as tmp:
         known = evaluate_locals(header, kernel, Path(tmp))
@@ -882,8 +869,6 @@ def default_stem(d, m, n, k):
     return f"{d.elem_a}_{d.elem_b}_{out}_{m}_{n}_{k}"
 
 
-# The (element, scale) pair each block-scaled format is spelled by, so a
-# caller naming both lands on the format the operand dtypes would have.
 SCALED_OF_ELEMS = {(d.elem, d.sf): name for name, d in SCALED.items()}
 
 

@@ -17,9 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from opengemm import DTYPES  # noqa: E402
-from opengemm.python import bench  # noqa: E402
-from opengemm.python.tune import tune  # noqa: E402
+from opengemm import DTYPES
+from opengemm.python import bench
+from opengemm.python.tune import tune
 
 
 def main():

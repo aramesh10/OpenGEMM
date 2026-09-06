@@ -20,13 +20,9 @@ from setuptools.command.build_py import build_py as _build_py
 
 try:
     from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
-except ImportError:  # setuptools older than 70.1 leaves this to the wheel pkg
+except ImportError:
     from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
-# Loaded by path, not imported: importing `opengemm.python.build` would run the
-# package __init__, which imports torch, and a wheel builder has none. build.py
-# and log.py need nothing outside the standard library, so a stand-in package
-# with only a __path__ resolves the relative import.
 _HERE = Path(__file__).parent
 _package = types.ModuleType("_opengemm_build")
 _package.__path__ = [str(_HERE / "opengemm" / "python")]
@@ -72,7 +68,6 @@ class build_py(_build_py):
         for impl in IMPLS:
             print(f"opengemm: compiling the {impl} library")
             og_build.compile_library(impl, out / f"libopengemm_{impl}.so")
-        # The digest lets an installed copy notice an edited kernel and rebuild.
         (out / "stamp.json").write_text(json.dumps({
             "abi": {impl: abi_version(impl) for impl in IMPLS},
             "arch": og_build.ARCH,

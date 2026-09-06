@@ -12,11 +12,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import torch  # noqa: E402
+import torch
 
-from opengemm import DTYPES, run_kernel  # noqa: E402
-from opengemm.python import bench  # noqa: E402
-from opengemm.python.emit import parse_tag  # noqa: E402
+from opengemm import DTYPES, run_kernel
+from opengemm.python import bench
+from opengemm.python.emit import parse_tag
 
 
 def main():
@@ -33,8 +33,6 @@ def main():
         return run_kernel(args.file, *entry[:operands], out=entry[-1])
 
     out = rotation[0][-1]
-    # Not zero on purpose: an accumulating epilogue that forgot to clear C
-    # must fail here rather than pass on a buffer that happened to be fresh.
     out.fill_(float("nan") if out.dtype.is_floating_point else 12345)
     launch(rotation[0])
     torch.cuda.synchronize()

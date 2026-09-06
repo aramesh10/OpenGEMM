@@ -14,11 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import torch  # noqa: E402
+import torch
 
-import opengemm as og  # noqa: E402
-from opengemm import DTYPES  # noqa: E402
-from opengemm.python import bench  # noqa: E402
+import opengemm as og
+from opengemm import DTYPES
+from opengemm.python import bench
 
 SHAPES = [(2048, 2048, 2048), (128, 128, 128), (1, 8192, 8192),
           (300, 520, 768), (77, 33, 128), (2048, 2048, 384)]

@@ -21,14 +21,10 @@ ARCH = "-gencode=arch=compute_100a,code=sm_100a"
 NVCC_FLAGS = ["-O3", ARCH, "--expt-relaxed-constexpr", "-std=c++20",
               "--split-compile=0", "-diag-suppress", "68,2361"]
 
-# A wheel ships the compiled libraries here; a source checkout has nothing.
 LIB = PACKAGE / "lib"
 CACHE = Path(os.environ.get("OPENGEMM_CACHE") or
              Path(os.environ.get("XDG_CACHE_HOME",
                                  Path.home() / ".cache")) / "opengemm")
-# Hidden visibility keeps the inline helpers the two builds share names but
-# not signatures for, tmap.cuh's above all, from colliding when both libraries
-# are loaded into one process; common/abi.h opts the entry points back out.
 LIBRARY_FLAGS = ["-shared", "-Xcompiler", "-fPIC",
                  "-Xcompiler", "-fvisibility=hidden"]
 
@@ -61,16 +57,12 @@ def compile_library(impl, out):
         RuntimeError: If nvcc fails, with its diagnostics.
     """
     src = SRC / impl
-    # Staged and renamed, so a reader never opens a half-written library.
     staging = out.with_suffix(f".{os.getpid()}.tmp")
-    # -I on src/ resolves the "common/..." includes; on src/<impl>/ the rest.
     command = (["nvcc"] + NVCC_FLAGS + LIBRARY_FLAGS + [f"-I{SRC}", f"-I{src}"]
                + [str(src / "capi.cu"), "-o", str(staging), "-lcuda"])
     stubs = Path(os.environ.get("CUDA_HOME", "/usr/local/cuda"))
     stubs = stubs / "targets" / "x86_64-linux" / "lib" / "stubs"
     if stubs.is_dir():
-        # The stub lets a machine with no driver link; the SONAME is the real
-        # one, so it is the driver's libcuda that loads.
         command += [f"-L{stubs}"]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
@@ -129,7 +121,6 @@ def library_path(impl):
             recorded = json.loads(stamp.read_text())["sources"][impl]
         except Exception:
             recorded = None
-        # A disagreeing stamp means an edited kernel in an installed copy.
         if recorded in (None, digest):
             return shipped
     out = CACHE / digest / name

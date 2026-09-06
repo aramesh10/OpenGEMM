@@ -1,6 +1,3 @@
-// The dense kernel itself. Everything it is configured by is already a
-// constant: types.cuh turned the Policy into a Geom, so what is left here is
-// the schedule -- the TMA ring, the MMA, and the epilogue that drains it.
 #pragma once
 
 #include "common/clc.cuh"

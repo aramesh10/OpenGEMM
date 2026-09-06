@@ -1,6 +1,3 @@
-// Host side of the dense kernel: the registry as data, and the launch. Nothing
-// here knows about torch or Python; capi.cu wraps it in the surface capi.h
-// declares.
 #pragma once
 
 #include <algorithm>
@@ -22,17 +19,11 @@ using opengemm::ceil_div;
 using opengemm::error_text;
 using opengemm::set_error;
 
-// The registry reads back in the harness vocabulary, not the hardware's:
-// use_2cta for cta_group, output_n for mma_n, epi_double for epi_mode,
-// cluster_m for the cluster's whole M extent. REGISTRY_FIELDS names the
-// columns in the order policy_row writes them.
 inline constexpr int REGISTRY_COLS = 15;
 inline constexpr const char *REGISTRY_FIELDS =
     "elem_a,elem_b,use_2cta,block_m,output_n,stages,swap_ab,epi_hold,"
     "epi_double,epi_direct,use_clc,splits_expected,cluster_m,cluster_n,"
     "cluster_k";
-// Every enumerated registry column and its spellings, so a caller decodes a
-// row without a table of its own. Both operands draw on the same Elem.
 #define OG_MM_ELEM_NAMES "bf16,f16,tf32,s8,u8,e4m3,e5m2,e3m2,e2m3,e2m1"
 inline constexpr const char *ENUMS =
     "elem_a=" OG_MM_ELEM_NAMES ";elem_b=" OG_MM_ELEM_NAMES;
@@ -85,8 +76,6 @@ int max_active_clusters(Kern kern, dim3 cluster, dim3 block, int smem,
   return active;
 }
 
-// swap_ab is applied on the host: the kernel always computes the same product,
-// so what changes is which pointer, extent and pitch it is handed.
 struct Operands {
   void *a, *b;
   int   m, n, a_pitch, b_pitch;
@@ -188,8 +177,6 @@ int launch_cfg(void *a, void *b, void *c, int m, int n, int k, int a_pitch,
   return OG_OK;
 }
 
-// One launcher per registry row, in the order make_table wrote them, so a row
-// read out of REGISTRY is the kernel it selects here.
 using LaunchFn = int (*)(void *, void *, void *, int, int, int, int, int, int,
                          int, int, int, int, cudaStream_t);
 
@@ -203,4 +190,4 @@ static_assert(static_cast<int>(LAUNCHERS.size()) == REGISTRY_ROWS,
               "the launcher table and the registry disagree on how many "
               "kernels this build compiles");
 
-}  // namespace opengemm_mm
+}

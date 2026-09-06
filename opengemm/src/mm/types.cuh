@@ -1,7 +1,3 @@
-// The dense kernel's vocabulary: what an element is, the Policy that names
-// one kernel, and the Geom that reads a Policy as the geometry the kernel is
-// laid out in. Every field of Geom is a compile-time constant, so the kernel
-// below it has no configuration to carry.
 #pragma once
 
 #include <cuda.h>
@@ -86,8 +82,6 @@ enum : int {
   WALK_GILBERT    = 3,
   WALK_ROW        = 4,
 };
-
-// ---- how much of the SM's shared memory a stage may have ----
 
 constexpr int SMEM_BUDGET_BYTES = 227 * 1024;
 

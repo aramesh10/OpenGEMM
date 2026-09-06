@@ -1,6 +1,3 @@
-// Host side of the block-scaled kernel: the registry as data, and the launch.
-// Nothing here knows about torch or Python; capi.cu wraps it in the surface
-// capi.h declares.
 #pragma once
 
 #include <algorithm>
@@ -21,15 +18,10 @@ using opengemm::ceil_div;
 using opengemm::error_text;
 using opengemm::set_error;
 
-// The registry reads back in the harness vocabulary, not the hardware's:
-// use_2cta for cta_group, output_n for mma_n, cluster_m for the cluster's
-// whole M extent. REGISTRY_FIELDS names the columns policy_row writes.
 inline constexpr int REGISTRY_COLS = 11;
 inline constexpr const char *REGISTRY_FIELDS =
     "elem,sf,use_2cta,output_n,swap_ab,epi_trade,deep_stages,use_clc,"
     "cluster_m,cluster_n,cluster_k";
-// Every enumerated registry column and its spellings, so a caller decodes a
-// row without a table of its own.
 inline constexpr const char *ENUMS =
     "elem=e4m3,e5m2,e3m2,e2m3,e2m1_c8,e2m1;sf=ue4m3,ue8m0";
 
@@ -66,12 +58,6 @@ inline int sm_count() {
   return count;
 }
 
-// Clusters resident at once. One CTA fills an SM - the kernel takes 159-222 KB
-// of the SM's 228 KB and all 512 TMEM columns - so this is arithmetic rather
-// than an occupancy query. Checked against cudaOccupancyMaxActiveClusters for
-// every cluster size the registry builds (1 and 2 CTAs) and for the smallest
-// and largest shared-memory footprints: identical in every case. A cluster of
-// more than 2 CTAs would need that checked again.
 inline int wave_clusters(int cluster_ctas) {
   return sm_count() / cluster_ctas;
 }
@@ -147,8 +133,6 @@ int launch_cfg(void *a, void *b, void *sfa, void *sfb, void *c, int m, int n,
   return OG_OK;
 }
 
-// One launcher per registry row, in the order make_table wrote them, so a row
-// read out of REGISTRY is the kernel it selects here.
 using LaunchFn = int (*)(void *, void *, void *, void *, void *, int, int,
                          int, int, int, int, int, cudaStream_t);
 
@@ -162,4 +146,4 @@ static_assert(static_cast<int>(LAUNCHERS.size()) == REGISTRY_ROWS,
               "the launcher table and the registry disagree on how many "
               "kernels this build compiles");
 
-}  // namespace opengemm_smm
+}

@@ -1,7 +1,3 @@
-// The block-scaled kernel itself. Everything it is configured by is already a
-// constant: types.cuh turned the Policy into a Geom, so what is left here is
-// the schedule -- the TMA ring for the operands and their scales, the MMA, and
-// the epilogue that drains it.
 #pragma once
 
 #include "common/clc.cuh"
@@ -604,4 +600,3 @@ void smm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     else                                 __syncthreads();
     if (warp == MMA_WARP) tmem_dealloc<CTA_COUNT, TMEM_COLS>(0);
 }
-

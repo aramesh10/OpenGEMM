@@ -1,5 +1,3 @@
-// The C surface of the block-scaled kernels: the translation unit that
-// compiles every kernel registry.cuh names.
 #include "capi.h"
 #include "launch.cuh"
 
@@ -7,7 +5,7 @@ namespace {
 using namespace opengemm_smm;
 constexpr const char *ROW_LISTER = "og_smm_registry_data() lists the ones "
                                   "that are";
-}  // namespace
+}
 
 extern "C" {
 
@@ -34,4 +32,4 @@ OG_API int32_t og_smm_launch(int32_t row, const void *a, const void *b,
                         static_cast<cudaStream_t>(stream));
 }
 
-}  // extern "C"
+}

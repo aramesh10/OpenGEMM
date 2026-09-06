@@ -1,6 +1,3 @@
-// How the dense build describes an operand to the TMA unit. A and B are read
-// through a 128B-swizzled tile over rows that may be pitched wider than K; C
-// is written through an unswizzled one whose element is the accumulator's.
 #pragma once
 
 #include <cstdint>
@@ -11,8 +8,6 @@
 
 constexpr int OUTPUT_BYTES = 4;
 
-// `pitch` is the row stride in values, which is K unless the caller padded an
-// unaligned K by copying into a wider buffer.
 inline CUresult init_ab_tmap(CUtensorMap *tmap, void *ptr, uint64_t rows,
                              uint64_t k, uint32_t tile_rows, uint32_t tile_k,
                              CUtensorMapDataType dtype, uint32_t element_bits,

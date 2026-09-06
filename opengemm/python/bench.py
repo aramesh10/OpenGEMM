@@ -41,7 +41,6 @@ def load_shapes():
     return shapes
 
 
-
 def make_inputs(m, n, k, dtype, seed=0, device="cuda"):
     """Build the operands for one GEMM.
 
@@ -114,7 +113,6 @@ def make_input_set(m, n, k, dtype, seed=0, cap_bytes=48 << 30):
     if dtype.impl == "smm":
         iteration_bytes += (m * k + n * k) // dtype.block
     l2_bytes = torch.cuda.get_device_properties(0).L2_cache_size
-    # Twice L2 of rotations defeats the cache; the cap bounds a huge shape.
     rotations = max(2, min(-(-2 * l2_bytes // iteration_bytes),
                            cap_bytes // iteration_bytes))
     return [make_inputs(m, n, k, dtype, seed + i) + (out_buffer(m, n, dtype),)
@@ -133,7 +131,6 @@ def reference(entry, dtype):
     """
     a, b = entry[0], entry[1]
     previous = torch.backends.cuda.matmul.allow_tf32
-    # The reference must not round through tf32.
     torch.backends.cuda.matmul.allow_tf32 = False
     try:
         if dtype.impl == "smm":
@@ -152,7 +149,6 @@ def reference(entry, dtype):
         return torch.mm(a.float(), b.float().t()).to(dtype.out_dtype)
     finally:
         torch.backends.cuda.matmul.allow_tf32 = previous
-
 
 
 def runner(buffers, config, dtype, m, n, k):
@@ -185,7 +181,6 @@ def correctness_error(buffers, config, dtype, m, n, k):
         return None
     except Exception as exc:
         return str(exc).splitlines()[0][:90]
-
 
 
 def baseline_for(buffers, dtype):
@@ -248,7 +243,6 @@ def baseline_for(buffers, dtype):
         return None, str(exc).splitlines()[0][:110]
 
 
-
 def elapsed_ms(fn, iterations):
     """Return the milliseconds `iterations` calls of `fn` take, by CUDA events.
     """
@@ -257,8 +251,6 @@ def elapsed_ms(fn, iterations):
     pending = collections.deque()
     for i in range(iterations):
         fn()
-        # Bound how far the host runs ahead without ever letting the queue
-        # drain.
         if i % LAUNCH_CHUNK == LAUNCH_CHUNK - 1:
             marker = torch.cuda.Event()
             marker.record()
@@ -298,7 +290,6 @@ def report_plan(fn, warmup_s=1.0, window_ms=300):
 def warm(fn, iterations):
     for i in range(iterations):
         fn()
-        # A periodic sync keeps a long warmup from queueing unboundedly.
         if i % 64 == 63:
             torch.cuda.synchronize()
     torch.cuda.synchronize()
@@ -322,9 +313,6 @@ def env_stamp():
             "date": datetime.date.today().isoformat()}
 
 
-
-# New tunings are written here, not into the package. Set OPENGEMM_CONFIGS to
-# put the directory somewhere other than the working directory.
 TUNED_DIR = "opengemm-configs"
 TUNED_FILE = "tuned_configs.json"
 

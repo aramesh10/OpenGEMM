@@ -1,5 +1,3 @@
-// The C surface of the dense kernels: the translation unit that compiles every
-// kernel registry.cuh names.
 #include "capi.h"
 #include "launch.cuh"
 
@@ -7,7 +5,7 @@ namespace {
 using namespace opengemm_mm;
 constexpr const char *ROW_LISTER = "og_mm_registry_data() lists the ones "
                                    "that are";
-}  // namespace
+}
 
 extern "C" {
 
@@ -32,4 +30,4 @@ OG_API int32_t og_mm_launch(int32_t row, const void *a, const void *b, void *c,
                         l2_promo, device, static_cast<cudaStream_t>(stream));
 }
 
-}  // extern "C"
+}
