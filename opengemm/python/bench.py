@@ -18,8 +18,9 @@ from pathlib import Path
 
 import torch
 
+from . import capi
 from .build import PACKAGE, SRC
-from .dtypes import DTYPES, ELEM_INDEX, quantize, to_blocked
+from .dtypes import DTYPES, quantize, to_blocked
 
 REPORT_WARMUP = 10_000
 REPORT_ITERATIONS = 4_000
@@ -27,20 +28,6 @@ WARMUP_CAP_S = 20.0
 WINDOW_CAP_S = 4.0
 LAUNCH_CHUNK = 256
 LAUNCH_DEPTH = 2
-
-# configs.json keys in the order the extension's launcher() takes them.
-CONFIG_KEYS = {
-    "mm": (("use_2cta", bool), ("output_n", int), ("use_clc", bool),
-           ("supergroup", int), ("swap_ab", bool), ("k_pad", -1),
-           ("epi_direct", 0), ("epi_hold", 1), ("cluster_n", 1),
-           ("stages", 0), ("epi_double", 0), ("split_k", 1),
-           ("l2_promo", 0), ("block_m", 128), ("cluster_m", 0),
-           ("cluster_k", 1), ("walk", 0)),
-    "smm": (("use_2cta", bool), ("output_n", int), ("use_clc", bool),
-            ("supergroup", int), ("swap_ab", bool), ("epi_direct", 0),
-            ("epi_trade", 0), ("deep_stages", 0), ("cluster_m", 0),
-            ("cluster_n", 1), ("cluster_k", 1), ("persistent", 1)),
-}
 
 
 def load_shapes():
@@ -52,7 +39,6 @@ def load_shapes():
             seen.add((m, n, k))
             shapes.append((m, n, k))
     return shapes
-
 
 
 def make_inputs(m, n, k, dtype, seed=0, device="cuda"):
@@ -127,7 +113,6 @@ def make_input_set(m, n, k, dtype, seed=0, cap_bytes=48 << 30):
     if dtype.impl == "smm":
         iteration_bytes += (m * k + n * k) // dtype.block
     l2_bytes = torch.cuda.get_device_properties(0).L2_cache_size
-    # Twice L2 of rotations defeats the cache; the cap bounds a huge shape.
     rotations = max(2, min(-(-2 * l2_bytes // iteration_bytes),
                            cap_bytes // iteration_bytes))
     return [make_inputs(m, n, k, dtype, seed + i) + (out_buffer(m, n, dtype),)
@@ -146,7 +131,6 @@ def reference(entry, dtype):
     """
     a, b = entry[0], entry[1]
     previous = torch.backends.cuda.matmul.allow_tf32
-    # The reference must not round through tf32.
     torch.backends.cuda.matmul.allow_tf32 = False
     try:
         if dtype.impl == "smm":
@@ -167,37 +151,17 @@ def reference(entry, dtype):
         torch.backends.cuda.matmul.allow_tf32 = previous
 
 
-
-def config_args(config, impl):
-    """Return `config` as the positional arguments the extension's launcher()
-    takes.
-
-    Raises:
-        KeyError: If `config` has a key the launcher does not take.
-    """
-    keys = CONFIG_KEYS[impl]
-    unknown = sorted(set(config) - {key for key, _ in keys})
-    if unknown:
-        raise KeyError(f"config has unknown keys: {unknown}")
-    return tuple(cast(config[key]) if isinstance(cast, type)
-                 else int(config.get(key, cast)) for key, cast in keys)
-
-
-def runner(ext, buffers, config, dtype):
+def runner(buffers, config, dtype, m, n, k):
     """Return a zero-argument callable that launches `config` on the next
     rotation each call.
     """
     cycle = itertools.cycle(buffers)
+    launch = capi.launcher(dtype.name, config, m, n, k)
     if dtype.impl == "smm":
-        launch = ext.launcher(*config_args(config, "smm"))
-
         def call():
             a, b, sfa, sfb, _, _, c = next(cycle)
             return launch(a, b, sfa, sfb, out=c)
         return call
-
-    launch = ext.launcher(*config_args(config, "mm"),
-                          ELEM_INDEX[dtype.elem_a], ELEM_INDEX[dtype.elem_b])
 
     def call():
         a, b, c = next(cycle)
@@ -205,19 +169,18 @@ def runner(ext, buffers, config, dtype):
     return call
 
 
-def correctness_error(ext, buffers, config, dtype, k):
+def correctness_error(buffers, config, dtype, m, n, k):
     """Return None if `config` reproduces the reference on the first rotation,
     else the first line of the mismatch.
     """
     rtol, atol = dtype.tolerance(k)
     try:
-        torch.testing.assert_close(runner(ext, buffers[:1], config, dtype)(),
-                                   reference(buffers[0], dtype),
-                                   rtol=rtol, atol=atol)
+        torch.testing.assert_close(
+            runner(buffers[:1], config, dtype, m, n, k)(),
+            reference(buffers[0], dtype), rtol=rtol, atol=atol)
         return None
     except Exception as exc:
         return str(exc).splitlines()[0][:90]
-
 
 
 def baseline_for(buffers, dtype):
@@ -280,7 +243,6 @@ def baseline_for(buffers, dtype):
         return None, str(exc).splitlines()[0][:110]
 
 
-
 def elapsed_ms(fn, iterations):
     """Return the milliseconds `iterations` calls of `fn` take, by CUDA events.
     """
@@ -289,8 +251,6 @@ def elapsed_ms(fn, iterations):
     pending = collections.deque()
     for i in range(iterations):
         fn()
-        # Bound how far the host runs ahead without ever letting the queue
-        # drain.
         if i % LAUNCH_CHUNK == LAUNCH_CHUNK - 1:
             marker = torch.cuda.Event()
             marker.record()
@@ -330,7 +290,6 @@ def report_plan(fn, warmup_s=1.0, window_ms=300):
 def warm(fn, iterations):
     for i in range(iterations):
         fn()
-        # A periodic sync keeps a long warmup from queueing unboundedly.
         if i % 64 == 63:
             torch.cuda.synchronize()
     torch.cuda.synchronize()
@@ -354,9 +313,6 @@ def env_stamp():
             "date": datetime.date.today().isoformat()}
 
 
-
-# New tunings are written here, not into the package. Set OPENGEMM_CONFIGS to
-# put the directory somewhere other than the working directory.
 TUNED_DIR = "opengemm-configs"
 TUNED_FILE = "tuned_configs.json"
 

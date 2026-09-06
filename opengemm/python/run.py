@@ -7,6 +7,7 @@ from pathlib import Path
 import torch
 
 from .build import ARCH
+from .capi import raw_stream
 from .dtypes import DTYPES
 from .emit import parse_tag
 from .log import log
@@ -53,14 +54,6 @@ def entry_point(source):
     function.restype = None
     _loaded[source] = (mtime, (function, impl, dtype, m, n, k))
     return _loaded[source][1]
-
-
-def _raw_stream(device):
-    try:
-        # The private accessor skips building a Stream object on every call.
-        return torch._C._cuda_getCurrentRawStream(device.index or 0)
-    except AttributeError:
-        return torch.cuda.current_stream(device).cuda_stream
 
 
 def _check(t, name, shape, dtype):
@@ -125,5 +118,5 @@ def run_kernel(file, a, b, sfa=None, sfb=None, out=None):
             raise ValueError(f"out must be contiguous bf16 [{m}, {n}]")
         args = (a.data_ptr(), b.data_ptr(), sfa.data_ptr(), sfb.data_ptr(),
                 out.data_ptr())
-    call(*args, ctypes.c_void_p(_raw_stream(a.device)))
+    call(*args, ctypes.c_void_p(raw_stream(a.device)))
     return out

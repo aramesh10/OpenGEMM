@@ -20,14 +20,10 @@ from . import fold
 from .build import ARCH, SRC
 from .dtypes import DENSE, DTYPES, SCALED
 from .log import log
+from .policy import mm_policy, smm_policy
 from .tune import resolve_config
 
 MARK = "// opengemm"
-
-# (operand, scale) enumerator names as src/smm/types.cuh spells them.
-SCALED_FORMAT = {"nvfp4": ("e2m1", "ue4m3"),
-                 "mxfp8": ("e4m3", "ue8m0"),
-                 "mxfp4": ("e2m1", "ue8m0")}
 
 HEADER_INCLUDES = ["#include <cudaTypedefs.h>"]
 
@@ -54,7 +50,6 @@ def drop_blocks(text, markers, replace=None):
             out.append(lines[i])
             i += 1
             continue
-        # A dropped construct takes its template header with it.
         while out and out[-1].startswith("template <"):
             out.pop()
         if replace and marker in replace:
@@ -130,7 +125,6 @@ def pin_policy(text, values):
     text = text.replace("Geom<P>", "Geom")
     for name, literal in values.items():
         text = re.sub(rf"\bP\.{name}\b", literal, text)
-    # Fold the ternaries the substitution just made constant.
     text = re.sub(r"\btrue \? ([^;\n]*?) : [^;\n]*?;", r"\1;", text)
     text = re.sub(r"\bfalse \? [^;\n]*? : ([^;\n]*?);", r"\1;", text)
     return text
@@ -272,8 +266,6 @@ def flatten_geom(text, members, values, tmaps, acc_type):
                          f"{'true' if values[name] else 'false'};")
         else:
             lines.append(f"constexpr {kind} G_{name} = {values[name]};")
-    # The constants go with the config block at the top: the device helpers
-    # are monomorphized against them and need them declared first.
     text = drop_blocks(text, ("struct Geom",))
     anchor = "// ---- the tuned configuration, as compile-time constants ----"
     assert anchor in text, "config constant block not found"
@@ -512,65 +504,27 @@ def cpp_bool(value):
     return "true" if value else "false"
 
 
-def mm_policy(dtype, config, k):
-    """Return the Policy field literals and launch constants for a dense
-    config, mapping configs.json keys the way mm.cu's launcher() and
-    normalized() do.
-    """
-    elem_a, _, elem_b = dtype.partition("x")
-    elem_b = elem_b or elem_a
-    group = 2 if config["use_2cta"] else 1
-    block_m = config.get("block_m") or 128
-    cluster_m = config.get("cluster_m") or 0
-    rm = (cluster_m // group) if cluster_m > 0 else 1
-    rn = config.get("cluster_n") or 1
-    rk = config.get("cluster_k") or 1
-    epi_mode = config.get("epi_double", 0)
-    k_tiles = -(-k // 128)
-    requested = config.get("split_k", 0)
-    splits = 1 if (epi_mode == 1 or requested <= 1) else min(requested, k_tiles)
-    fields = {
-        "elem_a": f"Elem::{elem_a}", "elem_b": f"Elem::{elem_b}",
-        "cta_group": str(group), "block_m": str(block_m),
-        "mma_n": str(config["output_n"]),
-        "stages": str(config.get("stages", 0)),
-        "swap_ab": cpp_bool(config["swap_ab"]),
-        "epi_hold": str(config.get("epi_hold", 1)),
-        "epi_mode": str(epi_mode),
-        "epi_direct": cpp_bool(config.get("epi_direct", 0)),
-        "use_clc": cpp_bool(config["use_clc"]),
-        "split_k": cpp_bool(splits > 1),
-        "rm": str(max(rm, 1)), "rn": str(max(rn, 1)), "rk": str(max(rk, 1)),
-    }
-    extra = {"SUPERGROUP": config["supergroup"],
-             "L2_PROMO": config.get("l2_promo", 0),
-             "SPLITS": splits, "WALK": config.get("walk", 0)}
-    return fields, extra
+def policy_literals(policy, enum):
+    """Return `policy` as the C++ literals `pin_policy` substitutes.
 
+    Args:
+        policy: A policy dict from `opengemm.python.policy`.
+        enum: The enumeration the elements name, `"Elem"` or `"SElem"`.
 
-def smm_policy(dtype, config, k):
-    """Return the Policy field literals and launch constants for a block-scaled
-    config.
+    Returns:
+        The same keys, every value a string.
     """
-    elem, sf = SCALED_FORMAT[dtype]
-    group = 2 if config["use_2cta"] else 1
-    cluster_m = config.get("cluster_m") or group
-    fields = {
-        "elem_a": f"SElem::{elem}", "elem_b": f"SElem::{elem}",
-        "elem_sf": f"SFElem::{sf}", "cta_group": str(group),
-        "mma_n": str(config["output_n"]),
-        "swap_ab": cpp_bool(config["swap_ab"]),
-        "epi_trade": str(config.get("epi_trade", 0)),
-        "deep": cpp_bool(config.get("deep_stages", 0)),
-        "use_clc": cpp_bool(config["use_clc"]),
-        "rm": str(max(cluster_m // group, 1)),
-        "rn": str(max(config.get("cluster_n") or 1, 1)),
-        "rk": str(max(config.get("cluster_k") or 1, 1)),
-    }
-    extra = {"SUPERGROUP": config["supergroup"],
-             "EPI_DIRECT": config.get("epi_direct", 0),
-             "PERSISTENT": config.get("persistent", 1)}
-    return fields, extra
+    literals = {}
+    for key, value in policy.items():
+        if key in ("elem_a", "elem_b"):
+            literals[key] = f"{enum}::{value}"
+        elif key == "elem_sf":
+            literals[key] = f"SFElem::{value}"
+        elif isinstance(value, bool):
+            literals[key] = cpp_bool(value)
+        else:
+            literals[key] = str(value)
+    return literals
 
 
 MM_LAUNCH = """
@@ -578,16 +532,30 @@ extern "C" void {name}(const void *a, const void *b, void *c,
                        cudaStream_t stream) {{
   using G = Geom;{zero_c}
 
-  static const bool configured = [] {{
+  // This library carries its own CUDA runtime state, whose current device
+  // starts at 0, so a caller on any other one has to be followed. The operands
+  // say where that is; the stream cannot, since the default stream is 0 on
+  // every device. The attributes below are per device too.
+  int device = 0;
+  cudaPointerAttributes where{{}};
+  if (cudaPointerGetAttributes(&where, a) == cudaSuccess)
+    device = where.device;
+  int current = 0;
+  cudaGetDevice(&current);
+  if (current != device)
+    cudaSetDevice(device);
+
+  static thread_local uint64_t configured = 0;
+  const uint64_t seen = uint64_t{{1}} << (device & 63);
+  if (!(configured & seen)) {{
+    configured |= seen;
     if constexpr (G::cluster_ctas > 8)
       cudaFuncSetAttribute(mm_gemm_kernel,
                            cudaFuncAttributeNonPortableClusterSizeAllowed, 1);
     cudaFuncSetAttribute(mm_gemm_kernel,
                          cudaFuncAttributeMaxDynamicSharedMemorySize,
                          G::smem_bytes);
-    return true;
-  }}();
-  (void)configured;
+  }}
 
   void *pa = const_cast<void *>(G::swap_ab ? b : a);
   void *pb = const_cast<void *>(G::swap_ab ? a : b);
@@ -637,8 +605,9 @@ extern "C" void {name}(const void *a, const void *b, void *c,
       int blocks = 0;
       cudaOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks, mm_gemm_kernel, G::threads, G::smem_bytes);
-      int sms = 0;
-      cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, 0);
+      int sms = 0, device = 0;
+      cudaGetDevice(&device);
+      cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, device);
       const int ctas = blocks * sms;
       const int per_cluster = G::cluster_m * G::rn * G::rk;
       return (ctas / per_cluster) > 0 ? (ctas / per_cluster) : 1;
@@ -657,16 +626,30 @@ SMM_LAUNCH = """
 extern "C" void {name}(const void *a, const void *b, const void *sfa,
                        const void *sfb, void *c, cudaStream_t stream) {{
   using G = Geom;{zero_c}
-  static const bool configured = [] {{
+  // This library carries its own CUDA runtime state, whose current device
+  // starts at 0, so a caller on any other one has to be followed. The operands
+  // say where that is; the stream cannot, since the default stream is 0 on
+  // every device. The attributes below are per device too.
+  int device = 0;
+  cudaPointerAttributes where{{}};
+  if (cudaPointerGetAttributes(&where, a) == cudaSuccess)
+    device = where.device;
+  int current = 0;
+  cudaGetDevice(&current);
+  if (current != device)
+    cudaSetDevice(device);
+
+  static thread_local uint64_t configured = 0;
+  const uint64_t seen = uint64_t{{1}} << (device & 63);
+  if (!(configured & seen)) {{
+    configured |= seen;
     if constexpr (G::cluster_ctas > 8)
       cudaFuncSetAttribute(smm_gemm_kernel,
                            cudaFuncAttributeNonPortableClusterSizeAllowed, 1);
     cudaFuncSetAttribute(smm_gemm_kernel,
                          cudaFuncAttributeMaxDynamicSharedMemorySize,
                          G::smem_bytes);
-    return true;
-  }}();
-  (void)configured;
+  }}
 
   void *pa  = const_cast<void *>(G::swap_ab ? b : a);
   void *pb  = const_cast<void *>(G::swap_ab ? a : b);
@@ -702,8 +685,9 @@ extern "C" void {name}(const void *a, const void *b, const void *sfa,
       int blocks = 0;
       cudaOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks, smm_gemm_kernel, G::threads, G::smem_bytes);
-      int sms = 0;
-      cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, 0);
+      int sms = 0, device = 0;
+      cudaGetDevice(&device);
+      cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, device);
       return (blocks * sms) / G::cluster_ctas;
     }}();
     if (wave > 0 && wave < clusters)
@@ -751,27 +735,25 @@ def emit(dtype, m, n, k, config, stem):
         ValueError: If K is not a multiple of what the element's TMA box needs.
         RuntimeError: If a branch survives folding.
     """
-    impl = DTYPES[dtype].impl
+    d = DTYPES[dtype]
+    impl = d.impl
     src = SRC / impl
+    common = SRC / "common"
     entry = f"{impl}_{dtype}_{m}_{n}_{k}"
 
-    # The Policy and the Config around it are how the shared build is handed a
-    # configuration at runtime; here every field is a constant.
-    DEAD = ("struct Config", "struct Policy")
+    DEAD = ("struct Policy",)
 
     if impl == "mm":
-        fields, extra = mm_policy(dtype, config, k)
-        kernel_header, launch = "mm.cuh", MM_LAUNCH
-        elem_a, _, elem_b = dtype.partition("x")
-        elem_b = elem_b or elem_a
-        bits = {"bf16": 16, "f16": 16, "tf32": 32}.get(elem_a)
-        bits = bits if bits is not None else (6 if elem_a in ("e3m2", "e2m3")
-                                              else 4 if elem_a == "e2m1"
-                                              else 8)
-        k_align = 128 if bits < 8 else 16 * 8 // bits
-        if k % k_align:
+        policy, bound = mm_policy(dtype, config, k)
+        fields = policy_literals(policy, "Elem")
+        extra = {"SUPERGROUP": bound["supergroup"],
+                 "L2_PROMO": bound["l2_promo"],
+                 "SPLITS": bound["splits"], "WALK": bound["walk"]}
+        launch = MM_LAUNCH
+        elem_a, elem_b = policy["elem_a"], policy["elem_b"]
+        if k % d.k_align:
             raise ValueError(
-                f"K = {k} is not a multiple of {k_align}, which {elem_a} "
+                f"K = {k} is not a multiple of {d.k_align}, which {elem_a} "
                 f"requires. gemm() pads an unaligned pitch by copying; a "
                 f"standalone kernel over the caller's pointers cannot.")
         types = drop_blocks(
@@ -780,14 +762,21 @@ def emit(dtype, m, n, k, config, stem):
                     "template <Elem E>"),
             replace={"template <Elem E>": elem_traits(src, (elem_a, elem_b))})
     else:
-        fields, extra = smm_policy(dtype, config, k)
-        kernel_header, launch = "smm.cuh", SMM_LAUNCH
+        policy, bound = smm_policy(dtype, config)
+        fields = policy_literals(policy, "SElem")
+        extra = {"SUPERGROUP": bound["supergroup"],
+                 "EPI_DIRECT": bound["epi_direct"],
+                 "PERSISTENT": bound["persistent"]}
+        launch = SMM_LAUNCH
         types = drop_blocks(inline(src / "types.cuh"), DEAD)
 
+    shared_body = take_includes(inline(common / "ptx.cuh"))
     types_body = take_includes(types)
-    device_body = take_includes(inline(src / "device_utils.cuh"))
-    kernel_body = take_includes(inline(src / kernel_header))
-    host_body = take_includes(inline(src / "host_utils.cuh"))
+    device_body = take_includes(inline(src / "ptx.cuh") + "\n\n"
+                                + inline(common / "clc.cuh"))
+    kernel_body = take_includes(inline(src / "kernel.cuh"))
+    host_body = take_includes(inline(common / "tmap.cuh") + "\n\n"
+                              + inline(src / "tmap.cuh"))
 
     constants = "\n".join(f"constexpr int {key} = {int(value)};"
                           for key, value in extra.items())
@@ -797,6 +786,7 @@ def emit(dtype, m, n, k, config, stem):
         + "\n// ---- the tuned configuration, as compile-time constants ----\n"
         f"constexpr int M = {m};\nconstexpr int N = {n};\n"
         f"constexpr int K = {k};\n{constants}\n\n"
+        + pin_policy(strip_static_asserts(shared_body), fields) + "\n\n"
         + pin_policy(strip_static_asserts(types_body), fields) + "\n\n"
         + pin_policy(strip_static_asserts(device_body), fields) + "\n\n"
         + pin_policy(strip_static_asserts(kernel_body), fields) + "\n")
@@ -818,7 +808,6 @@ def emit(dtype, m, n, k, config, stem):
             if impl == "mm" else
             "const void *a, const void *b, const void *sfa, const void *sfb,\n"
             "                       void *c, cudaStream_t stream")
-    # The accumulating epilogue adds into C, so C has to start at zero.
     accumulates = (int(extra.get("SPLITS", 1)) > 1
                    or int(values.get("rk", 1)) > 1)
     zero_c = ("\n  cudaMemsetAsync(c, 0, (size_t)M * N * sizeof(%s), stream);"
@@ -835,9 +824,6 @@ def emit(dtype, m, n, k, config, stem):
     header = strip_comments(header)
     source = strip_comments(f"#include \"{stem}.cuh\"\n\n" + source)
 
-    # Every constant is a literal now, the kernel's own constexpr locals
-    # included: fold every branch and ternary on them, bind the helper
-    # templates, and drop what nothing reaches.
     kernel = f"{impl}_gemm_kernel"
     with tempfile.TemporaryDirectory(prefix="opengemm_emit_") as tmp:
         known = evaluate_locals(header, kernel, Path(tmp))
@@ -883,8 +869,6 @@ def default_stem(d, m, n, k):
     return f"{d.elem_a}_{d.elem_b}_{out}_{m}_{n}_{k}"
 
 
-# The (element, scale) pair each block-scaled format is spelled by, so a
-# caller naming both lands on the format the operand dtypes would have.
 SCALED_OF_ELEMS = {(d.elem, d.sf): name for name, d in SCALED.items()}
 
 

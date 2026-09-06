@@ -14,7 +14,6 @@ Anything it cannot parse is left exactly as it was.
 
 import re
 
-
 PAIRS = {"(": ")", "[": "]", "{": "}"}
 
 
@@ -79,8 +78,6 @@ def statement_end(text, i):
         elif c == "{" and depth == 0:
             j = match_bracket(text, i)
             k = skip_ws(text, j + 1)
-            # A brace followed by one of these closes an initializer or a
-            # lambda, not the statement.
             if k < len(text) and text[k] in ";(),.":
                 i = j + 1
                 continue
@@ -99,7 +96,6 @@ def line_indent(text, i):
     start = line_start(text, i)
     return len(text[start:i]) - len(text[start:i].lstrip(" ")) \
         if text[start:i].strip() == "" else len(text[start:]) - len(text[start:].lstrip(" "))
-
 
 
 TOKEN = re.compile(r"""\s*(?:
@@ -347,7 +343,6 @@ def truth(value):
     return None if value is None else bool(value)
 
 
-
 class If:
     __slots__ = ("start", "cond", "body", "else_body", "end", "constexpr")
 
@@ -476,8 +471,6 @@ def fold_region(text, lo, hi, known):
             continue
         if c == "i" and is_word(text, i, "if"):
             before = text[:i].rstrip()
-            # Only an if at statement level can be hoisted into its block; one
-            # inside an expression keeps its braces.
             statement_level = (not before or before[-1] in ";{}"
                                or before.endswith("#pragma unroll"))
             node = parse_if(text, i)
@@ -505,7 +498,6 @@ def fold_ifs(text, known):
     return fold_region(text, 0, len(text), known)
 
 
-
 def expression_bounds(text, i):
     """Return `(start, end)` of the expression around `i`: back to the `=`,
     `(`, `[`, `,`, `;` or `return` that opens it, forward to the `;`, `,` or
@@ -529,8 +521,6 @@ def expression_bounds(text, i):
             depth -= 1
         elif depth == 0 and c in ";,?:":
             break
-        # A lone `=` opens the expression; `==`, `!=`, `<=` and `>=` are inside
-        # it.
         elif depth == 0 and c == "=" and text[j - 2] not in "=!<>" \
                 and text[j] != "=":
             break
@@ -583,7 +573,6 @@ def fold_expressions(text, known):
         i += 1
     out.append(text[pos:])
     return "".join(out)
-
 
 
 TEMPLATE_FN = re.compile(
@@ -666,8 +655,6 @@ def monomorphize(text, known):
                 break
             else:
                 body = text[start:end]
-                # Callers that disagree only need clones when a branch depends
-                # on the parameter.
                 if len(bound) > 1 and "if constexpr" not in body:
                     continue
                 clones = []
@@ -711,7 +698,6 @@ def monomorphize(text, known):
                 changed = True
                 break
     return text
-
 
 
 FN_DEF = re.compile(
@@ -806,8 +792,6 @@ def fold_all(header, source, known, keep_functions):
     Returns:
         `(header, source)`, folded.
     """
-    # Far more rounds than a kernel has needed; the loop exits at the first
-    # quiet one.
     for _ in range(12):
         before = (header, source)
         known = known_constants(header, known)

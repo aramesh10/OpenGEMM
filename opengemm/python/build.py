@@ -1,11 +1,14 @@
-"""JIT build of the torch extensions.
+"""Where the compiled kernel libraries come from.
 
-torch caches a build under ~/.cache/torch_extensions and rebuilds it when a
-source changes; the first load after a clone compiles every kernel
-registry.cuh names, which takes a few minutes.
+A wheel ships them, already built. A source checkout, an edited kernel or
+OPENGEMM_JIT=1 compiles them with nvcc instead and caches the result under
+OPENGEMM_CACHE, keyed by a digest of the sources it was built from.
 """
 
+import hashlib
 import os
+import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -16,49 +19,132 @@ PACKAGE = Path(__file__).resolve().parents[1]
 SRC = PACKAGE / "src"
 ARCH = "-gencode=arch=compute_100a,code=sm_100a"
 NVCC_FLAGS = ["-O3", ARCH, "--expt-relaxed-constexpr", "-std=c++20",
-              "-diag-suppress", "68,2361"]
+              "--split-compile=0", "-diag-suppress", "68,2361"]
 
-os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "10.0a")
-_loaded = {}
+LIB = PACKAGE / "lib"
+CACHE = Path(os.environ.get("OPENGEMM_CACHE") or
+             Path(os.environ.get("XDG_CACHE_HOME",
+                                 Path.home() / ".cache")) / "opengemm")
+LIBRARY_FLAGS = ["-shared", "-Xcompiler", "-fPIC",
+                 "-Xcompiler", "-fvisibility=hidden"]
 
 
-def _built_before(name):
-    """Return whether torch's cache holds a build of `name`; a changed source
-    still rebuilds.
+def source_hash(impl):
+    """Return a digest of the sources `impl`'s library is built from.
+
+    Content, not mtime: pip rewrites mtimes on reinstall, so a timestamp says a
+    rebuild is due when nothing changed. Every compiled file counts, src/common
+    and capi.h included: the shared headers are half the kernel, and capi.h
+    declares the ABI, so an edit to either has to invalidate a build.
     """
-    try:
-        # Private to torch; without it, skip the notice rather than the build.
-        from torch.utils.cpp_extension import _get_build_directory
-        return any(Path(_get_build_directory(name, False)).glob(f"{name}*.so"))
-    except Exception:
-        return True
+    digest = hashlib.blake2s(digest_size=8)
+    for directory in (SRC / "common", SRC / impl):
+        for path in sorted(p for p in directory.iterdir()
+                           if p.suffix in (".cu", ".cuh", ".h")):
+            digest.update(str(path.relative_to(SRC)).encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
-def extension(impl):
-    """Load the `mm` or `smm` extension, building it first when needed.
+def compile_library(impl, out):
+    """Compile `impl`'s C surface to the shared library `out`.
 
     Args:
-        impl: `"mm"` for the dense kernel, `"smm"` for the block-scaled one.
+        impl: `"mm"` for the dense kernels, `"smm"` for the block-scaled ones.
+        out: Where to write the library; the parent must exist.
+
+    Raises:
+        RuntimeError: If nvcc fails, with its diagnostics.
+    """
+    src = SRC / impl
+    staging = out.with_suffix(f".{os.getpid()}.tmp")
+    command = (["nvcc"] + NVCC_FLAGS + LIBRARY_FLAGS + [f"-I{SRC}", f"-I{src}"]
+               + [str(src / "capi.cu"), "-o", str(staging), "-lcuda"])
+    stubs = Path(os.environ.get("CUDA_HOME", "/usr/local/cuda"))
+    stubs = stubs / "targets" / "x86_64-linux" / "lib" / "stubs"
+    if stubs.is_dir():
+        command += [f"-L{stubs}"]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        staging.unlink(missing_ok=True)
+        raise RuntimeError(f"nvcc failed building the {impl} library:\n"
+                           + (result.stderr or result.stdout))
+    os.replace(staging, out)
+    return out
+
+
+class _Ticker:
+    """Log the elapsed seconds while nvcc runs, which prints nothing itself."""
+
+    def __init__(self, message, every=15):
+        self.message, self.every, self.done = message, every, threading.Event()
+        self.thread = threading.Thread(target=self._tick, daemon=True)
+
+    def _tick(self):
+        started = time.perf_counter()
+        while not self.done.wait(self.every):
+            elapsed = time.perf_counter() - started
+            log(f"{self.message}, {elapsed:.0f} s so far")
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.done.set()
+        self.thread.join(timeout=1)
+
+
+def library_path(impl):
+    """Return the path of `impl`'s compiled library, building it when needed.
+
+    A wheel ships the library and this returns it untouched. A source checkout,
+    an edited kernel or `OPENGEMM_JIT=1` falls through to nvcc, whose result is
+    cached under `OPENGEMM_CACHE` keyed by the sources it was built from.
+
+    Args:
+        impl: `"mm"` or `"smm"`.
 
     Returns:
-        The extension module: `registry()`, `launcher()` and the `Launcher`
-        class.
+        The path of a library exporting the surface `capi.h` declares.
     """
-    if impl not in _loaded:
-        from torch.utils.cpp_extension import load
-        name = f"opengemm_{impl}"
-        if not _built_before(name):
-            log(f"building the {impl} extension; a few minutes, then torch "
-                f"caches it")
-        src = SRC / impl
-        started = time.perf_counter()
-        _loaded[impl] = load(
-            name=name, sources=[str(src / f"{impl}.cu")],
-            extra_cuda_cflags=NVCC_FLAGS + [f"-I{src}"],
-            extra_cflags=["-O3"], extra_ldflags=["-lcuda"],
-            verbose=bool(os.environ.get("OPENGEMM_VERBOSE")))
-        seconds = time.perf_counter() - started
-        # A cached load takes a second or two; anything longer was a build.
-        if seconds > 10:
-            log(f"built the {impl} extension in {seconds:.0f} s")
-    return _loaded[impl]
+    override = os.environ.get(f"OPENGEMM_LIB_{impl.upper()}")
+    if override:
+        return Path(override)
+    name = f"libopengemm_{impl}.so"
+    shipped = LIB / name
+    digest = source_hash(impl)
+    if not os.environ.get("OPENGEMM_JIT") and shipped.exists():
+        stamp = LIB / "stamp.json"
+        try:
+            import json
+            recorded = json.loads(stamp.read_text())["sources"][impl]
+        except Exception:
+            recorded = None
+        if recorded in (None, digest):
+            return shipped
+    out = CACHE / digest / name
+    if out.exists():
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    log(f"building the {impl} library: one nvcc over every kernel "
+        f"{SRC / impl / 'registry.cuh'} names, about half a minute. The "
+        f"result is cached under {CACHE}.")
+    started = time.perf_counter()
+    with _Ticker(f"compiling the {impl} library"):
+        compile_library(impl, out)
+    log(f"built the {impl} library in {time.perf_counter() - started:.0f} s")
+    return out
+
+
+def prebuild(impls=("mm", "smm")):
+    """Resolve every library ahead of the first `gemm` call, building any that
+    a wheel did not ship.
+
+    Args:
+        impls: Which libraries to resolve; both by default.
+
+    Returns:
+        `(impl, path)` for each, in the order given.
+    """
+    return [(impl, library_path(impl)) for impl in impls]

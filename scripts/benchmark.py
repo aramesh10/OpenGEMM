@@ -42,12 +42,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import torch  # noqa: E402
+import torch
 
-from opengemm import DTYPES  # noqa: E402
-from opengemm.python import bench  # noqa: E402
-from opengemm.python.build import ROOT, extension  # noqa: E402
-from opengemm.python.tune import resolve_config  # noqa: E402
+from opengemm import DTYPES
+from opengemm.python import bench
+from opengemm.python.build import ROOT
+from opengemm.python.tune import resolve_config
 
 LOW_SPEEDUP = 0.95
 BAD_SPEEDUP = 0.90
@@ -67,7 +67,7 @@ def cuda_healthy():
         return False
 
 
-def row_for(ext, dtype_name, m, n, k, config, quick):
+def row_for(dtype_name, m, n, k, config, quick):
     """Measure one (dtype, shape) against cuBLAS.
 
     A launch or measurement failure is recorded as status "error" rather than
@@ -90,12 +90,12 @@ def row_for(ext, dtype_name, m, n, k, config, quick):
         return row
 
     try:
-        wrong = bench.correctness_error(ext, buffers, config, dtype, k)
+        wrong = bench.correctness_error(buffers, config, dtype, m, n, k)
         if wrong:
             row["status"] = "incorrect"
             row["note"] = wrong
         else:
-            kernel = bench.runner(ext, buffers, config, dtype)
+            kernel = bench.runner(buffers, config, dtype, m, n, k)
             baseline, why = bench.baseline_for(buffers, dtype)
             plan = bench.plan if quick else bench.report_plan
             warmup, iterations = plan(kernel)
@@ -223,7 +223,6 @@ def main():
         if aborted:
             break
         dtype = DTYPES[name]
-        ext = extension(dtype.impl)
         configs = bench.load_configs(dtype.impl, name)
 
         print(f"\n{bench.env_stamp()['gpu']}  dtype {name}")
@@ -242,7 +241,7 @@ def main():
                     print(f"{m:>7}{n:>7}{k:>7}  {'SKIPPED':>10}  "
                           f"{str(exc).splitlines()[0][:120]}", flush=True)
                     continue
-            row = row_for(ext, name, m, n, k, config, args.quick)
+            row = row_for(name, m, n, k, config, args.quick)
             print_row(row)
             rows.append(row)
             if row.get("fatal"):

@@ -7,14 +7,10 @@ Block-scaled formats ride `smm`: nvfp4, mxfp8, mxfp4.
 """
 import torch
 
-# Elem enum order of src/mm/types.cuh; the index is what the extension
-# takes.
 ELEMS = ("bf16", "f16", "tf32", "s8", "u8", "e4m3", "e5m2", "e3m2", "e2m3",
          "e2m1")
 ELEM_INDEX = {name: i for i, name in enumerate(ELEMS)}
 
-# fp6 and fp4 have no torch dtype and arrive packed in uint8, which also
-# carries u8, so those four are named by the caller rather than inferred.
 DENSE_OF_TORCH = {
     torch.bfloat16: "bf16", torch.float16: "f16", torch.float32: "tf32",
     torch.int8: "s8", torch.float8_e4m3fn: "e4m3", torch.float8_e5m2: "e5m2",
@@ -31,8 +27,6 @@ TOLERANCE_PIVOT_K = 4096
 def _scaled_tolerance(rtol, atol, k):
     if rtol == 0.0 and atol == 0.0:
         return 0.0, 0.0
-    # Accumulation error grows with the reduction length; widen the tolerance
-    # past the pivot.
     scale = max(1.0, (k / TOLERANCE_PIVOT_K) ** 0.5)
     return rtol * scale, atol * scale
 
@@ -64,6 +58,16 @@ class Dense:
     def tolerance(self, k):
         """Return `(rtol, atol)` for a reduction of length `k`."""
         return _scaled_tolerance(self.rtol, self.atol, k)
+
+    @property
+    def k_align(self):
+        """Return the K multiple a row must be for TMA to address it.
+
+        16 bytes' worth for the byte-aligned types, and a flat 128 values for
+        the sub-byte ones, whose expanding tensor maps require it of
+        globalDim[0].
+        """
+        return 128 if self.bits < 8 else 16 * 8 // self.bits
 
     def k_extent(self, k):
         """Return the row extent of a `(rows, K)` operand as torch sees it."""
@@ -112,7 +116,6 @@ class Scaled:
         `k_extent`.
         """
         return extent * self.per_byte
-
 
 
 def _float_table(exp_bits, mant_bits):
@@ -187,10 +190,7 @@ def _small_float(name, exp_bits, mant_bits, bits):
 
 def _round_tf32(x):
     bits = x.view(torch.int32)
-    # Round to the 10-bit mantissa tensor cores read, so the reference sees the
-    # operands the kernel does.
     return ((bits + 0x1000) & ~0x1FFF).view(torch.float32)
-
 
 
 E2M1_VALUES = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
@@ -214,7 +214,6 @@ def pack_e2m1(x):
     tied = (distance.gather(-1, upper.unsqueeze(-1)).squeeze(-1)
             == distance.gather(-1, code.unsqueeze(-1)).squeeze(-1)) \
         & (upper != code)
-    # Ties round to the even code, as the hardware conversion does.
     code = torch.where(tied & (code % 2 == 1), upper, code).to(torch.uint8)
     code |= (torch.signbit(x.float()) << 3).to(torch.uint8)
     low, high = code[..., 0::2], code[..., 1::2]
@@ -283,14 +282,12 @@ def quantize(x, dtype):
     blocks = x.float().reshape(rows, k // dtype.block, dtype.block)
     amax = blocks.abs().amax(dim=-1, keepdim=True)
     scale = (amax / dtype.amax).clamp(min=1e-30)
-    # e8m0 scales are powers of two; round up so no block overflows.
     if dtype.sf_ceiling:
         scale = torch.pow(2.0, torch.ceil(torch.log2(scale)))
     stored = scale.squeeze(-1).to(dtype.sf_dtype)
     effective = stored.float().unsqueeze(-1).clamp(min=1e-30)
     data = (blocks / effective).reshape(rows, k)
     return dtype.packer(data.to(torch.bfloat16)), stored
-
 
 
 DENSE = {
