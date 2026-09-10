@@ -1,8 +1,10 @@
 """Where the compiled kernel libraries come from: a wheel ships them, and a
 source checkout, an edited kernel or OPENGEMM_JIT=1 compiles them with nvcc
-into a cache keyed by a digest of the sources.
+into a cache keyed by a digest of the sources and of the compiler that
+turns them into a library.
 """
 
+import functools
 import hashlib
 import json
 import os
@@ -45,6 +47,17 @@ def nvcc(inputs, out, *flags):
     if result.returncode != 0:
         raise RuntimeError("nvcc failed:\n" + (result.stderr or result.stdout))
 
+@functools.lru_cache(maxsize=None)
+def nvcc_version():
+    """The nvcc release line, or None when nvcc is not on the path."""
+    try:
+        out = subprocess.run(
+            ["nvcc", "--version"], capture_output=True, text=True, check=True
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return next((line.strip() for line in out.splitlines() if "release" in line), "unknown")
+
 def source_hash(impl):
     """A digest of the sources `impl`'s library is built from; content, not mtime, since pip rewrites mtimes."""
     digest = hashlib.blake2s(digest_size=8)
@@ -52,6 +65,18 @@ def source_hash(impl):
         for path in sorted(p for p in directory.iterdir() if p.suffix in (".cu", ".cuh", ".h")):
             digest.update(str(path.relative_to(SRC)).encode())
             digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+def build_hash(impl):
+    """The cache key for `impl`'s library: its sources, plus the compiler and the
+    flags that turn them into one, so a toolkit upgrade or a flag edit does not
+    reuse a library built by something else. Include paths are left out; they
+    name locations, not content.
+    """
+    digest = hashlib.blake2s(digest_size=8)
+    digest.update(source_hash(impl).encode())
+    digest.update((nvcc_version() or "no nvcc").encode())
+    digest.update(" ".join(NVCC_FLAGS + LIBRARY_FLAGS).encode())
     return digest.hexdigest()
 
 def compile_library(impl, out):
@@ -71,21 +96,23 @@ def compile_library(impl, out):
     return out
 
 def library_path(impl):
-    """The path of `impl`'s compiled library: the one a wheel shipped, else one built by nvcc and cached under OPENGEMM_CACHE by source digest."""
+    """The path of `impl`'s compiled library: the one a wheel shipped, else one built by nvcc and cached under OPENGEMM_CACHE by build digest."""
     override = os.environ.get(f"OPENGEMM_LIB_{impl.upper()}")
     if override:
         return Path(override)
     name = f"libopengemm_{impl}.so"
     shipped = LIB / name
-    digest = source_hash(impl)
     if not os.environ.get("OPENGEMM_JIT") and shipped.exists():
         try:
-            recorded = json.loads((LIB / "stamp.json").read_text())["sources"][impl]
+            stamp = json.loads((LIB / "stamp.json").read_text())
         except Exception:
-            recorded = None
-        if recorded in (None, digest):
+            stamp = {}
+        # A shipped library is a binary someone else's nvcc already produced, so
+        # only the sources and the arch it was built for have to still match.
+        sources_match = stamp.get("sources", {}).get(impl) in (None, source_hash(impl))
+        if sources_match and stamp.get("arch", ARCH) == ARCH:
             return shipped
-    out = CACHE / digest / name
+    out = CACHE / build_hash(impl) / name
     if out.exists():
         return out
     out.parent.mkdir(parents=True, exist_ok=True)

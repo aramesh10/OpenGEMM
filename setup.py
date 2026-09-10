@@ -10,7 +10,6 @@ import importlib.util
 import json
 import os
 import re
-import subprocess
 import sys
 import types
 from pathlib import Path
@@ -43,15 +42,6 @@ def abi_version():
     return int(re.search(r"OG_ABI_VERSION (\d+)", header).group(1))
 
 
-def nvcc_version():
-    """Return the nvcc release line, or None when nvcc is not on the path."""
-    try:
-        out = subprocess.run(
-            ["nvcc", "--version"], capture_output=True, text=True, check=True
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    return next((line.strip() for line in out.splitlines() if "release" in line), "unknown")
 
 
 class build_py(_build_py):
@@ -75,7 +65,7 @@ class build_py(_build_py):
                 {
                     "abi": abi_version(),
                     "arch": og_build.ARCH,
-                    "nvcc": nvcc_version(),
+                    "nvcc": og_build.nvcc_version(),
                     "sources": {impl: og_build.source_hash(impl) for impl in IMPLS},
                 },
                 indent=1,

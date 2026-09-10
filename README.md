@@ -45,9 +45,9 @@ python -m opengemm
 Or from Python, `og.prebuild()`. Either is a no-op once the libraries exist,
 so it is safe in a Dockerfile, a post-install step or a test fixture. The
 result is cached under `OPENGEMM_CACHE` (default `~/.cache/opengemm`), keyed
-by a digest of the sources it was built from, so editing a kernel rebuilds and
-a reinstall does not. `OPENGEMM_JIT=1` forces the build even when a wheel
-shipped one.
+by a digest of the sources it was built from and of the nvcc and flags that
+built it, so editing a kernel or upgrading CUDA rebuilds and a reinstall does
+not. `OPENGEMM_JIT=1` forces the build even when a wheel shipped one.
 
 ## Agent Quickstart
 
