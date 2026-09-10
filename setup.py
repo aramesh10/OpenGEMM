@@ -16,6 +16,7 @@ from pathlib import Path
 
 from setuptools import setup
 from setuptools.command.build_py import build_py as _build_py
+from setuptools.dist import Distribution as _Distribution
 
 try:
     from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
@@ -74,6 +75,22 @@ class build_py(_build_py):
         )
 
 
+class Distribution(_Distribution):
+    """A wheel that ships the compiled libraries is platform-specific.
+
+    setuptools decides between purelib and platlib from `has_ext_modules()`,
+    and this package declares no `ext_modules` - nvcc runs from `build_py`
+    instead. Left alone the libraries land in purelib, where auditwheel
+    refuses to repair them.
+    """
+
+    def has_ext_modules(self):
+        return not os.environ.get("OPENGEMM_SKIP_KERNELS")
+
+    def is_pure(self):
+        return bool(os.environ.get("OPENGEMM_SKIP_KERNELS"))
+
+
 class bdist_wheel(_bdist_wheel):
     """Tag the wheel by platform but not by Python: it holds no CPython ABI."""
 
@@ -88,4 +105,7 @@ class bdist_wheel(_bdist_wheel):
         return "py3", "none", platform
 
 
-setup(cmdclass={"build_py": build_py, "bdist_wheel": bdist_wheel})
+setup(
+    distclass=Distribution,
+    cmdclass={"build_py": build_py, "bdist_wheel": bdist_wheel},
+)
