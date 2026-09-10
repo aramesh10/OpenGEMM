@@ -1,12 +1,8 @@
 """Emit a standalone kernel specialized to one (dtype, shape).
 
 The pair compiles against nothing but CUDA: the shared headers are inlined,
-and every knob is a compile-time constant rather than a runtime argument.
-One Policy instead of a registry of them, one element type instead of ten,
-one kernel instantiation instead of a dispatch over all of them, and M, N
-and K are literals. Every branch the configuration decides is folded away,
-so no `if constexpr` survives and the helpers the kernel instantiates once
-are plain functions.
+every knob is a compile-time constant, and every branch the configuration
+decides is folded away.
 """
 
 import re
@@ -14,38 +10,20 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import torch
 
 from . import fold
-from .build import ARCH, SRC
-from .dtypes import DENSE, DTYPES, SCALED
+from .build import SRC, nvcc
+from .configs import resolve_config
+from .dtypes import DTYPES, dtype_name, elems, k_of
 from .log import log
-from .tune import resolve_config
 
 MARK = "// opengemm"
-
-# (operand, scale) enumerator names as src/smm/types.cuh spells them.
-SCALED_FORMAT = {"nvfp4": ("e2m1", "ue4m3"),
-                 "mxfp8": ("e4m3", "ue8m0"),
-                 "mxfp4": ("e2m1", "ue8m0")}
 
 HEADER_INCLUDES = ["#include <cudaTypedefs.h>"]
 
 
 def drop_blocks(text, markers, replace=None):
-    """Remove the top-level constructs whose first line starts with one of
-    `markers`.
-
-    Brace-balanced from the marker line, so a struct, a namespace and a
-    templated function all end where they actually end. Anything dropped here
-    is dead in a specialized kernel; if one is not, the file does not compile,
-    which is the check.
-
-    Args:
-        text: Header text.
-        markers: Line prefixes that open a construct to drop.
-        replace: Text to put in a dropped construct's place, by marker.
-    """
+    """Remove the top-level constructs whose first line starts with one of `markers`, brace-balanced; `replace` gives text to put in a construct's place."""
     lines = text.splitlines()
     out, i = [], 0
     while i < len(lines):
@@ -54,7 +32,6 @@ def drop_blocks(text, markers, replace=None):
             out.append(lines[i])
             i += 1
             continue
-        # A dropped construct takes its template header with it.
         while out and out[-1].startswith("template <"):
             out.pop()
         if replace and marker in replace:
@@ -71,26 +48,21 @@ def drop_blocks(text, markers, replace=None):
     return "\n".join(out)
 
 
-def elem_traits(src, elems):
-    """Return ElemTraits specialized to the elements this kernel uses.
-
-    The values are read out of types.cuh's ELEM_SPEC rather than restated, and
-    the primary template is left undefined so naming any other element is a
-    compile error.
-    """
+def elem_traits(src, used):
+    """ElemTraits specialized to the elements this kernel uses, read out of types.cuh's ELEM_SPEC."""
     text = (src / "types.cuh").read_text()
     order = re.search(r"enum class Elem \{([^}]*)\}", text).group(1)
     order = [name.strip() for name in order.split(",") if name.strip()]
-    body = re.search(r"constexpr ElemSpec ELEM_SPEC\[\] = \{(.*?)\n\};",
-                     text, re.S).group(1)
+    body = re.search(r"constexpr ElemSpec ELEM_SPEC\[\] = \{(.*?)\n\};", text, re.S).group(1)
     rows = re.findall(r"\{([^{}]*)\}", body)
     if len(rows) != len(order):
         raise RuntimeError("ELEM_SPEC and the Elem enum disagree in length")
 
     out = ["template <Elem E>\nstruct ElemTraits;\n"]
-    for name in dict.fromkeys(elems):
+    for name in dict.fromkeys(used):
         value_bits, container_bits, global_bits, fmt, kind, tmap = [
-            field.strip() for field in rows[order.index(name)].split(",")]
+            field.strip() for field in rows[order.index(name)].split(",")
+        ]
         out.append(
             f"template <>\nstruct ElemTraits<Elem::{name}> {{\n"
             f"    static constexpr int value_bits = {value_bits};\n"
@@ -99,14 +71,13 @@ def elem_traits(src, elems):
             f"    static constexpr int format = {fmt};\n"
             f"    static constexpr Kind kind = {kind};\n"
             f"    static constexpr CUtensorMapDataType tmap = {tmap};\n"
-            "};\n")
+            "};\n"
+        )
     return "\n".join(out)
 
 
 def strip_static_asserts(text):
-    """Remove the static_asserts: they check a Policy's consistency, and this
-    kernel's one is already known good.
-    """
+    """Remove the static_asserts; this kernel's Policy is already known good."""
     lines, out, i = text.splitlines(), [], 0
     while i < len(lines):
         if lines[i].lstrip().startswith("static_assert("):
@@ -123,14 +94,11 @@ def strip_static_asserts(text):
 
 
 def pin_policy(text, values):
-    """Substitute the Policy away: the template parameter goes and every
-    `P.field` becomes the literal it was going to be.
-    """
+    """Substitute the Policy away: every `P.field` becomes the literal it was going to be."""
     text = re.sub(r"^template <Policy P>\n", "", text, flags=re.M)
     text = text.replace("Geom<P>", "Geom")
     for name, literal in values.items():
         text = re.sub(rf"\bP\.{name}\b", literal, text)
-    # Fold the ternaries the substitution just made constant.
     text = re.sub(r"\btrue \? ([^;\n]*?) : [^;\n]*?;", r"\1;", text)
     text = re.sub(r"\bfalse \? [^;\n]*? : ([^;\n]*?);", r"\1;", text)
     return text
@@ -145,58 +113,31 @@ def geom_members(text):
 
 
 def run_probe(header_text, declarations, names, workdir):
-    """Ask nvcc what each of `names` evaluates to.
-
-    Restating the constexpr arithmetic in Python would be a second copy of it,
-    and a second copy drifts.
-
-    Args:
-        header_text: The staged header.
-        declarations: Text placed at file scope after the header.
-        names: Expressions to evaluate, reported by their last `::` component.
-        workdir: Scratch directory for the probe.
-
-    Returns:
-        `{name: value}` with integer values.
-
-    Raises:
-        RuntimeError: If the probe fails to build or run, or reports a name
-            short.
-    """
+    """Ask nvcc what each of `names` evaluates to, as `{last :: component: int}`."""
     (workdir / "geom.cuh").write_text(header_text)
-    prints = "\n".join(
-        f'  printf("{name}=%lld\\n", (long long)({name}));' for name in names)
+    prints = "\n".join(f'  printf("{name}=%lld\\n", (long long)({name}));' for name in names)
     (workdir / "probe.cu").write_text(
-        '#include <cstdio>\n#include "geom.cuh"\n\n' + declarations
-        + f"\nint main() {{\n{prints}\n  return 0;\n}}\n")
-    build = subprocess.run(
-        ["nvcc", "-O0", "-std=c++20", ARCH, "--expt-relaxed-constexpr",
-         "-diag-suppress", "68,2361", str(workdir / "probe.cu"), "-lcuda",
-         "-o", str(workdir / "probe")],
-        capture_output=True, text=True)
-    if build.returncode != 0:
-        raise RuntimeError("could not build the probe:\n" + build.stderr)
-    run = subprocess.run([str(workdir / "probe")], capture_output=True,
-                         text=True)
+        '#include <cstdio>\n#include "geom.cuh"\n\n'
+        + declarations
+        + f"\nint main() {{\n{prints}\n  return 0;\n}}\n"
+    )
+    nvcc([workdir / "probe.cu"], workdir / "probe")
+    run = subprocess.run([str(workdir / "probe")], capture_output=True, text=True)
     if run.returncode != 0:
         raise RuntimeError("the probe did not run:\n" + run.stderr)
     values = {}
     for line in run.stdout.splitlines():
         name, _, value = line.partition("=")
         values[name.rsplit("::", 1)[-1]] = int(value)
-    missing = [n.rsplit("::", 1)[-1] for n in names
-               if n.rsplit("::", 1)[-1] not in values]
+    missing = [n.rsplit("::", 1)[-1] for n in names if n.rsplit("::", 1)[-1] not in values]
     if missing:
         raise RuntimeError(f"the probe did not report {missing}")
     return values
 
 
 def evaluate_geom(header_text, members, workdir):
-    """Return every Geom member by value; the compiler that owns the definition
-    answers.
-    """
-    return run_probe(header_text, "", [f"Geom::{n}" for _, n in members],
-                     workdir)
+    """Every Geom member by value, from the compiler that owns the definition."""
+    return run_probe(header_text, "", [f"Geom::{n}" for _, n in members], workdir)
 
 
 def kernel_body(text, kernel):
@@ -207,29 +148,27 @@ def kernel_body(text, kernel):
 
 
 def evaluate_locals(header_text, kernel, workdir):
-    """Return the kernel body's own constexpr locals by value, so branches on
-    them fold too.
-
-    They depend only on file-scope constants, so they evaluate at file scope.
-    """
+    """The kernel body's own constexpr locals by value, so branches on them fold too."""
     lo, hi = kernel_body(header_text, kernel)
     seen, decls = {}, []
     for kind, name, expr in re.findall(
-            r"constexpr\s+([\w:]+)\s+(\w+)\s*=\s*(.*?);", header_text[lo:hi],
-            re.S):
+        r"constexpr\s+([\w:]+)\s+(\w+)\s*=\s*(.*?);", header_text[lo:hi], re.S
+    ):
         expr = " ".join(expr.split())
         if name in seen:
             if seen[name] != expr:
-                raise RuntimeError(f"{kernel} declares {name} twice, "
-                                   f"differently")
+                raise RuntimeError(f"{kernel} declares {name} twice, differently")
             continue
         seen[name] = expr
         decls.append(f"constexpr {kind} {name} = {expr};")
     if not decls:
         return {}
-    return run_probe(header_text,
-                     "namespace probe {\n" + "\n".join(decls) + "\n}\n",
-                     [f"probe::{name}" for name in seen], workdir)
+    return run_probe(
+        header_text,
+        "namespace probe {\n" + "\n".join(decls) + "\n}\n",
+        [f"probe::{name}" for name in seen],
+        workdir,
+    )
 
 
 def enum_names(text, enum):
@@ -238,22 +177,25 @@ def enum_names(text, enum):
 
 
 def tmap_names(src, dtype, impl, acc_type):
-    """Return the CUtensorMapDataType enumerators for the operands and
-    accumulator, by name rather than ordinal.
-    """
+    """The CUtensorMapDataType enumerators for the operands and accumulator, by name."""
     if impl != "mm":
         return {}
     text = (src / "types.cuh").read_text()
     order = enum_names(text, "Elem")
-    body = re.search(r"constexpr ElemSpec ELEM_SPEC\[\] = \{(.*?)\n\};",
-                     text, re.S).group(1)
+    body = re.search(r"constexpr ElemSpec ELEM_SPEC\[\] = \{(.*?)\n\};", text, re.S).group(1)
     rows = re.findall(r"\{([^{}]*)\}", body)
     elem_a, _, elem_b = dtype.partition("x")
     elem_b = elem_b or elem_a
     pick = lambda e: rows[order.index(e)].split(",")[5].strip()
-    return {"tmap_a": pick(elem_a), "tmap_b": pick(elem_b),
-            "tmap_c": ("CU_TENSOR_MAP_DATA_TYPE_INT32" if acc_type == "int"
-                       else "CU_TENSOR_MAP_DATA_TYPE_FLOAT32")}
+    return {
+        "tmap_a": pick(elem_a),
+        "tmap_b": pick(elem_b),
+        "tmap_c": (
+            "CU_TENSOR_MAP_DATA_TYPE_INT32"
+            if acc_type == "int"
+            else "CU_TENSOR_MAP_DATA_TYPE_FLOAT32"
+        ),
+    }
 
 
 def flatten_geom(text, members, values, tmaps, acc_type):
@@ -261,30 +203,23 @@ def flatten_geom(text, members, values, tmaps, acc_type):
     lines = []
     for kind, name in members:
         if name in tmaps:
-            lines.append(f"constexpr CUtensorMapDataType G_{name} = "
-                         f"{tmaps[name]};")
+            lines.append(f"constexpr CUtensorMapDataType G_{name} = {tmaps[name]};")
         elif re.search(rf"enum class {kind} \{{", text):
             names = enum_names(text, kind)
-            lines.append(f"constexpr {kind} G_{name} = "
-                         f"{kind}::{names[values[name]]};")
+            lines.append(f"constexpr {kind} G_{name} = {kind}::{names[values[name]]};")
         elif kind == "bool":
-            lines.append(f"constexpr bool G_{name} = "
-                         f"{'true' if values[name] else 'false'};")
+            lines.append(f"constexpr bool G_{name} = {'true' if values[name] else 'false'};")
         else:
             lines.append(f"constexpr {kind} G_{name} = {values[name]};")
-    # The constants go with the config block at the top: the device helpers
-    # are monomorphized against them and need them declared first.
     text = drop_blocks(text, ("struct Geom",))
     anchor = "// ---- the tuned configuration, as compile-time constants ----"
     assert anchor in text, "config constant block not found"
     enums = re.findall(r"^enum class \w+ \{[^}]*\};", text, re.M)
     for declaration in enums:
         text = text.replace(declaration + "\n", "", 1)
-    text = text.replace(anchor,
-                        anchor + "\n" + "\n".join(enums + lines), 1)
+    text = text.replace(anchor, anchor + "\n" + "\n".join(enums + lines), 1)
     text = re.sub(r"^\s*using G = Geom;\n", "", text, flags=re.M)
-    text = re.sub(r"^\s*using ACC = typename G::acc_t;\n", "", text,
-                  flags=re.M)
+    text = re.sub(r"^\s*using ACC = typename G::acc_t;\n", "", text, flags=re.M)
     text = re.sub(r"typename (?:G|Geom)::acc_t", acc_type, text)
     text = re.sub(r"\b(?:G|Geom)::(\w+)", r"G_\1", text)
     text = re.sub(r"\bACC\b", acc_type, text)
@@ -299,8 +234,10 @@ def expand_clc(text):
     name = found.group(1)
     text = drop_blocks(text, (f"struct {name}",))
 
-    params = ("int clc_arrived, int clc_finished, int clc_ready,\n"
-              "                          uint4 *clc_handles")
+    params = (
+        "int clc_arrived, int clc_finished, int clc_ready,\n"
+        "                          uint4 *clc_handles"
+    )
     before = text
     text = text.replace(f"const {name} &clc", params)
     assert text != before, "CLC parameters not found"
@@ -312,60 +249,60 @@ def expand_clc(text):
         rf"( *)const {name} clc = \{{clc_base,\s*\n"
         r"\s*clc_base \+ CLC_DEPTH \* MBAR,\s*\n"
         r"\s*clc_base \+ 2 \* CLC_DEPTH \* MBAR,\s*\n"
-        r"\s*clc_handles\};", text)
+        r"\s*clc_handles\};",
+        text,
+    )
     assert build, "CLC construction not found"
     pad = build.group(1)
-    text = text[:build.start()] + (
-        f"{pad}const int clc_arrived  = clc_base;\n"
-        f"{pad}const int clc_finished = clc_base + CLC_DEPTH * MBAR;\n"
-        f"{pad}const int clc_ready    = clc_base + 2 * CLC_DEPTH * MBAR;"
-    ) + text[build.end():]
+    text = (
+        text[: build.start()]
+        + (
+            f"{pad}const int clc_arrived  = clc_base;\n"
+            f"{pad}const int clc_finished = clc_base + CLC_DEPTH * MBAR;\n"
+            f"{pad}const int clc_ready    = clc_base + 2 * CLC_DEPTH * MBAR;"
+        )
+        + text[build.end() :]
+    )
 
     args = "clc_arrived, clc_finished, clc_ready, clc_handles"
-    text, calls = re.subn(r"\b(clc_issue|next_tile)<([^>]*)>\(clc, ",
-                          rf"\1<\2>({args}, ", text)
+    text, calls = re.subn(r"\b(clc_issue|next_tile)<([^>]*)>\(clc, ", rf"\1<\2>({args}, ", text)
     assert calls >= 2, f"expected CLC call sites, rewrote {calls}"
     return text
 
 
 def flatten_enums(text):
-    """Replace the kernel's own enums with integer constants; the CUDA driver's
-    enums are left alone.
-    """
-    for name, body in re.findall(r"^enum class (\w+) \{([^}]*)\};", text,
-                                 re.M):
+    """Replace the kernel's own enums with integer constants; the CUDA driver's are left alone."""
+    for name, body in re.findall(r"^enum class (\w+) \{([^}]*)\};", text, re.M):
         members = [x.strip() for x in body.split(",") if x.strip()]
-        constants = "\n".join(f"constexpr int {name}_{member} = {index};"
-                              for index, member in enumerate(members))
-        text = re.sub(rf"^enum class {name} \{{[^}}]*\}};", constants, text,
-                      flags=re.M)
+        constants = "\n".join(
+            f"constexpr int {name}_{member} = {index};" for index, member in enumerate(members)
+        )
+        text = re.sub(rf"^enum class {name} \{{[^}}]*\}};", constants, text, flags=re.M)
         text = re.sub(rf"\b{name}::(\w+)", rf"{name}_\1", text)
         text = re.sub(rf"\b{name}\b(?!_)", "int", text)
 
     def unnamed(match):
-        rows = [row.strip().rstrip(",") for row in match.group(1).splitlines()
-                if row.strip().rstrip(",")]
+        rows = [
+            row.strip().rstrip(",")
+            for row in match.group(1).splitlines()
+            if row.strip().rstrip(",")
+        ]
         return "\n".join(f"constexpr int {row};" for row in rows)
 
-    return re.sub(r"^enum : int \{\n(.*?)^\};", unnamed, text,
-                  flags=re.M | re.S)
+    return re.sub(r"^enum : int \{\n(.*?)^\};", unnamed, text, flags=re.M | re.S)
 
 
 def take_includes(text):
-    kept = [line for line in text.splitlines()
-            if not line.strip().startswith("#include <")]
+    kept = [line for line in text.splitlines() if not line.strip().startswith("#include <")]
     return "\n".join(kept).strip("\n")
 
 
 def drop_alias_layer(text):
-    """Remove the kernel's local re-declarations of the config.
-
-    With the config compiled in, `BLOCK_M = G_block_m` and the thirty-odd
-    others name the same literal. The substitution runs only inside the kernel.
-    """
+    """Remove the kernel's local re-declarations of the config, `BLOCK_M = G_block_m` and the rest."""
     lines = text.splitlines()
-    opens = [i for i, line in enumerate(lines)
-             if re.match(r"^(void )?\w*_?gemm_kernel\(", line.strip())]
+    opens = [
+        i for i, line in enumerate(lines) if re.match(r"^(void )?\w*_?gemm_kernel\(", line.strip())
+    ]
     if not opens:
         return text
     begin = opens[0]
@@ -376,8 +313,12 @@ def drop_alias_layer(text):
         found = pattern.match(line) if index > begin else None
         if found and "G_" in line:
             pairs = [part.split("=") for part in found.group(1).split(",")]
-            if all(len(pair) == 2 and pair[1].strip().startswith("G_")
-                   and pair[1].strip().isidentifier() for pair in pairs):
+            if all(
+                len(pair) == 2
+                and pair[1].strip().startswith("G_")
+                and pair[1].strip().isidentifier()
+                for pair in pairs
+            ):
                 for name, value in pairs:
                     alias[name.strip()] = value.strip()
                 continue
@@ -391,18 +332,25 @@ def drop_alias_layer(text):
 
 
 def bind_launch_args(text):
-    """Turn the kernel's runtime launch arguments into constants: supergroup,
-    walk and splits for mm; supergroup and epi_direct for smm.
-    """
+    """Turn the kernel's runtime launch arguments into the constants the header states."""
     before = text
-    text = re.sub(r"int m, int n, int k,\s*\n\s*int supergroup, int walk, "
-                  r"int splits\) \{", "int m, int n, int k) {", text)
+    text = re.sub(
+        r"int m, int n, int k,\s*\n\s*int supergroup, int walk, "
+        r"int splits\) \{",
+        "int m, int n, int k) {",
+        text,
+    )
     text = re.sub(r"^\s*int supergroup, int walk,\n", "", text, flags=re.M)
     text = text.replace(
         "tile_coords(spatial, num_m_groups, num_n_groups, supergroup, walk,",
-        "tile_coords(spatial, num_m_groups, num_n_groups,")
-    text = re.sub(r"int m, int n, int k,\s*\n\s*int supergroup,\s*\n\s*"
-                  r"int epi_direct\) \{", "int m, int n, int k) {", text)
+        "tile_coords(spatial, num_m_groups, num_n_groups,",
+    )
+    text = re.sub(
+        r"int m, int n, int k,\s*\n\s*int supergroup,\s*\n\s*"
+        r"int epi_direct\) \{",
+        "int m, int n, int k) {",
+        text,
+    )
     assert text != before, "no kernel signature matched"
     text = re.sub(r"\bsupergroup\b", "SUPERGROUP", text)
     text = re.sub(r"\bwalk\b", "WALK", text)
@@ -459,9 +407,7 @@ def strip_comments(text):
 
 
 def rename_template_params(text):
-    """Give every remaining template parameter a trailing underscore, so the
-    constants can take the plain uppercase names.
-    """
+    """Give every remaining template parameter a trailing underscore, so the constants can take the plain uppercase names."""
     while True:
         for found in re.finditer(r"^template <([^>]*)>\n", text, re.M):
             names = [x.split()[-1] for x in found.group(1).split(",")]
@@ -479,9 +425,7 @@ def rename_template_params(text):
 
 
 def plain_constant_names(text):
-    """Rename `G_block_m` to `BLOCK_M`, `Kind_f8f6f4` to `KIND_F8F6F4`, and so
-    on.
-    """
+    """Rename `G_block_m` to `BLOCK_M`, `Kind_f8f6f4` to `KIND_F8F6F4`, and so on."""
     renames = {}
     for name in set(re.findall(r"\b(G_\w+)\b", text)):
         renames[name] = name[2:].upper()
@@ -498,11 +442,11 @@ def plain_constant_names(text):
 
 
 def inline(path):
-    """Return a header's text without its include guard and local includes."""
+    """A header's text without its include guard and local includes."""
     out = []
     for line in path.read_text().splitlines():
         stripped = line.strip()
-        if stripped == "#pragma once" or stripped.startswith("#include \""):
+        if stripped == "#pragma once" or stripped.startswith('#include "'):
             continue
         out.append(line)
     return "\n".join(out).strip("\n")
@@ -512,65 +456,66 @@ def cpp_bool(value):
     return "true" if value else "false"
 
 
-def mm_policy(dtype, config, k):
-    """Return the Policy field literals and launch constants for a dense
-    config, mapping configs.json keys the way mm.cu's launcher() and
-    normalized() do.
-    """
-    elem_a, _, elem_b = dtype.partition("x")
-    elem_b = elem_b or elem_a
-    group = 2 if config["use_2cta"] else 1
-    block_m = config.get("block_m") or 128
-    cluster_m = config.get("cluster_m") or 0
-    rm = (cluster_m // group) if cluster_m > 0 else 1
-    rn = config.get("cluster_n") or 1
-    rk = config.get("cluster_k") or 1
-    epi_mode = config.get("epi_double", 0)
-    k_tiles = -(-k // 128)
-    requested = config.get("split_k", 0)
-    splits = 1 if (epi_mode == 1 or requested <= 1) else min(requested, k_tiles)
-    fields = {
-        "elem_a": f"Elem::{elem_a}", "elem_b": f"Elem::{elem_b}",
-        "cta_group": str(group), "block_m": str(block_m),
-        "mma_n": str(config["output_n"]),
-        "stages": str(config.get("stages", 0)),
-        "swap_ab": cpp_bool(config["swap_ab"]),
-        "epi_hold": str(config.get("epi_hold", 1)),
-        "epi_mode": str(epi_mode),
-        "epi_direct": cpp_bool(config.get("epi_direct", 0)),
-        "use_clc": cpp_bool(config["use_clc"]),
-        "split_k": cpp_bool(splits > 1),
-        "rm": str(max(rm, 1)), "rn": str(max(rn, 1)), "rk": str(max(rk, 1)),
-    }
-    extra = {"SUPERGROUP": config["supergroup"],
-             "L2_PROMO": config.get("l2_promo", 0),
-             "SPLITS": splits, "WALK": config.get("walk", 0)}
-    return fields, extra
+def splits_for(epi_double, split_k, k):
+    """The split count a configuration runs, clamped to the K tiles."""
+    if epi_double == 1 or split_k <= 1:
+        return 1
+    return min(split_k, -(-k // 128))
 
 
-def smm_policy(dtype, config, k):
-    """Return the Policy field literals and launch constants for a block-scaled
-    config.
-    """
-    elem, sf = SCALED_FORMAT[dtype]
+def policy_literals(name, config, k):
+    """A configs.json entry as the C++ literals `pin_policy` substitutes for `P.<field>`, and the launch-time constants; mirrors policy_of in src/<impl>/registry.cuh."""
     group = 2 if config["use_2cta"] else 1
-    cluster_m = config.get("cluster_m") or group
-    fields = {
-        "elem_a": f"SElem::{elem}", "elem_b": f"SElem::{elem}",
-        "elem_sf": f"SFElem::{sf}", "cta_group": str(group),
-        "mma_n": str(config["output_n"]),
-        "swap_ab": cpp_bool(config["swap_ab"]),
-        "epi_trade": str(config.get("epi_trade", 0)),
-        "deep": cpp_bool(config.get("deep_stages", 0)),
-        "use_clc": cpp_bool(config["use_clc"]),
-        "rm": str(max(cluster_m // group, 1)),
-        "rn": str(max(config.get("cluster_n") or 1, 1)),
-        "rk": str(max(config.get("cluster_k") or 1, 1)),
+    cluster = {
+        "rm": max(config["cluster_m"] // group, 1),
+        "rn": max(config["cluster_n"], 1),
+        "rk": max(config["cluster_k"], 1),
     }
-    extra = {"SUPERGROUP": config["supergroup"],
-             "EPI_DIRECT": config.get("epi_direct", 0),
-             "PERSISTENT": config.get("persistent", 1)}
-    return fields, extra
+    if DTYPES[name].impl == "mm":
+        elem_a, elem_b = elems(name)
+        splits = splits_for(config["epi_double"], config["split_k"], k)
+        policy = {
+            "elem_a": f"Elem::{elem_a}",
+            "elem_b": f"Elem::{elem_b}",
+            "cta_group": group,
+            "block_m": config["block_m"],
+            "mma_n": config["output_n"],
+            "stages": config["stages"],
+            "swap_ab": bool(config["swap_ab"]),
+            "epi_hold": config["epi_hold"],
+            "epi_mode": config["epi_double"],
+            "epi_direct": bool(config["epi_direct"]),
+            "use_clc": bool(config["use_clc"]),
+            "split_k": splits > 1,
+            **cluster,
+        }
+        constants = {
+            "SUPERGROUP": config["supergroup"],
+            "L2_PROMO": config["l2_promo"],
+            "SPLITS": splits,
+            "WALK": config["walk"],
+        }
+    else:
+        elem, sf = elems(name)
+        policy = {
+            "elem_a": f"SElem::{elem}",
+            "elem_b": f"SElem::{elem}",
+            "elem_sf": f"SFElem::{sf}",
+            "cta_group": group,
+            "mma_n": config["output_n"],
+            "swap_ab": bool(config["swap_ab"]),
+            "epi_trade": config["epi_trade"],
+            "deep": bool(config["deep_stages"]),
+            "use_clc": bool(config["use_clc"]),
+            **cluster,
+        }
+        constants = {
+            "SUPERGROUP": config["supergroup"],
+            "EPI_DIRECT": config["epi_direct"],
+            "PERSISTENT": config["persistent"],
+        }
+    literals = {key: cpp_bool(v) if isinstance(v, bool) else str(v) for key, v in policy.items()}
+    return literals, constants
 
 
 MM_LAUNCH = """
@@ -578,16 +523,30 @@ extern "C" void {name}(const void *a, const void *b, void *c,
                        cudaStream_t stream) {{
   using G = Geom;{zero_c}
 
-  static const bool configured = [] {{
+  // This library carries its own CUDA runtime state, whose current device
+  // starts at 0, so a caller on any other one has to be followed. The operands
+  // say where that is; the stream cannot, since the default stream is 0 on
+  // every device. The attributes below are per device too.
+  int device = 0;
+  cudaPointerAttributes where{{}};
+  if (cudaPointerGetAttributes(&where, a) == cudaSuccess)
+    device = where.device;
+  int current = 0;
+  cudaGetDevice(&current);
+  if (current != device)
+    cudaSetDevice(device);
+
+  static thread_local uint64_t configured = 0;
+  const uint64_t seen = uint64_t{{1}} << (device & 63);
+  if (!(configured & seen)) {{
+    configured |= seen;
     if constexpr (G::cluster_ctas > 8)
       cudaFuncSetAttribute(mm_gemm_kernel,
                            cudaFuncAttributeNonPortableClusterSizeAllowed, 1);
     cudaFuncSetAttribute(mm_gemm_kernel,
                          cudaFuncAttributeMaxDynamicSharedMemorySize,
                          G::smem_bytes);
-    return true;
-  }}();
-  (void)configured;
+  }}
 
   void *pa = const_cast<void *>(G::swap_ab ? b : a);
   void *pb = const_cast<void *>(G::swap_ab ? a : b);
@@ -603,12 +562,16 @@ extern "C" void {name}(const void *a, const void *b, void *c,
                G::global_bits_a, 0, l2);
   init_ab_tmap(&b_tmap, pb, mma_n, K, G::block_n, G::block_k, G::tmap_b,
                G::global_bits_b, 0, l2);
-  if constexpr (G::swap_ab)
-    init_c_tmap(&c_tmap, c, mma_m, (mma_n + 7) & ~7, G::block_m, G::c_tma_n,
-                G::tmap_c);
-  else
-    init_c_tmap(&c_tmap, c, mma_n, (mma_m + 7) & ~7, G::c_tma_n, G::block_m,
-                G::tmap_c, CU_TENSOR_MAP_SWIZZLE_NONE);
+  constexpr int c_cols      = (N + 3) & ~3;
+  constexpr int c_tile_rows = G::swap_ab ? G::c_tma_n : G::block_m;
+  constexpr int c_tile_cols = G::swap_ab   ? G::block_m
+                            : G::vec_stage ? G::store_n
+                                           : G::c_tma_n;
+  constexpr CUtensorMapSwizzle c_swizzle = G::vec_stage
+                                         ? CU_TENSOR_MAP_SWIZZLE_128B
+                                         : CU_TENSOR_MAP_SWIZZLE_NONE;
+  init_c_tmap(&c_tmap, c, M, c_cols, c_tile_rows, c_tile_cols, G::tmap_c,
+              c_swizzle);
 
   constexpr int tiles_m = (mma_m + G::tile_m - 1) / G::tile_m;
   constexpr int tiles_n = (mma_n + G::mma_n - 1) / G::mma_n;
@@ -637,8 +600,9 @@ extern "C" void {name}(const void *a, const void *b, void *c,
       int blocks = 0;
       cudaOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks, mm_gemm_kernel, G::threads, G::smem_bytes);
-      int sms = 0;
-      cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, 0);
+      int sms = 0, device = 0;
+      cudaGetDevice(&device);
+      cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, device);
       const int ctas = blocks * sms;
       const int per_cluster = G::cluster_m * G::rn * G::rk;
       return (ctas / per_cluster) > 0 ? (ctas / per_cluster) : 1;
@@ -657,16 +621,30 @@ SMM_LAUNCH = """
 extern "C" void {name}(const void *a, const void *b, const void *sfa,
                        const void *sfb, void *c, cudaStream_t stream) {{
   using G = Geom;{zero_c}
-  static const bool configured = [] {{
+  // This library carries its own CUDA runtime state, whose current device
+  // starts at 0, so a caller on any other one has to be followed. The operands
+  // say where that is; the stream cannot, since the default stream is 0 on
+  // every device. The attributes below are per device too.
+  int device = 0;
+  cudaPointerAttributes where{{}};
+  if (cudaPointerGetAttributes(&where, a) == cudaSuccess)
+    device = where.device;
+  int current = 0;
+  cudaGetDevice(&current);
+  if (current != device)
+    cudaSetDevice(device);
+
+  static thread_local uint64_t configured = 0;
+  const uint64_t seen = uint64_t{{1}} << (device & 63);
+  if (!(configured & seen)) {{
+    configured |= seen;
     if constexpr (G::cluster_ctas > 8)
       cudaFuncSetAttribute(smm_gemm_kernel,
                            cudaFuncAttributeNonPortableClusterSizeAllowed, 1);
     cudaFuncSetAttribute(smm_gemm_kernel,
                          cudaFuncAttributeMaxDynamicSharedMemorySize,
                          G::smem_bytes);
-    return true;
-  }}();
-  (void)configured;
+  }}
 
   void *pa  = const_cast<void *>(G::swap_ab ? b : a);
   void *pb  = const_cast<void *>(G::swap_ab ? a : b);
@@ -702,8 +680,9 @@ extern "C" void {name}(const void *a, const void *b, const void *sfa,
       int blocks = 0;
       cudaOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks, smm_gemm_kernel, G::threads, G::smem_bytes);
-      int sms = 0;
-      cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, 0);
+      int sms = 0, device = 0;
+      cudaGetDevice(&device);
+      cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, device);
       return (blocks * sms) / G::cluster_ctas;
     }}();
     if (wave > 0 && wave < clusters)
@@ -734,72 +713,47 @@ extern "C" void {name}(const void *a, const void *b, const void *sfa,
 
 
 def emit(dtype, m, n, k, config, stem):
-    """Emit the source and header for one (dtype, shape, config).
-
-    Args:
-        dtype: Dtype name.
-        m: Rows of A and C.
-        n: Rows of B and columns of C.
-        k: Reduction length in elements.
-        config: A configs.json configuration.
-        stem: The header's file stem, which the source includes.
-
-    Returns:
-        `(source, header)` text.
-
-    Raises:
-        ValueError: If K is not a multiple of what the element's TMA box needs.
-        RuntimeError: If a branch survives folding.
-    """
+    """`(source, header)` text for one (dtype, shape, config); `stem` is the header's file stem, which the source includes."""
     impl = DTYPES[dtype].impl
     src = SRC / impl
+    common = SRC / "common"
     entry = f"{impl}_{dtype}_{m}_{n}_{k}"
 
-    # The Policy and the Config around it are how the shared build is handed a
-    # configuration at runtime; here every field is a constant.
-    DEAD = ("struct Config", "struct Policy")
-
+    fields, extra = policy_literals(dtype, config, k)
+    DEAD = ("struct Policy",)
     if impl == "mm":
-        fields, extra = mm_policy(dtype, config, k)
-        kernel_header, launch = "mm.cuh", MM_LAUNCH
-        elem_a, _, elem_b = dtype.partition("x")
-        elem_b = elem_b or elem_a
-        bits = {"bf16": 16, "f16": 16, "tf32": 32}.get(elem_a)
-        bits = bits if bits is not None else (6 if elem_a in ("e3m2", "e2m3")
-                                              else 4 if elem_a == "e2m1"
-                                              else 8)
-        k_align = 128 if bits < 8 else 16 * 8 // bits
-        if k % k_align:
-            raise ValueError(
-                f"K = {k} is not a multiple of {k_align}, which {elem_a} "
-                f"requires. gemm() pads an unaligned pitch by copying; a "
-                f"standalone kernel over the caller's pointers cannot.")
+        launch = MM_LAUNCH
         types = drop_blocks(
             inline(src / "types.cuh"),
-            DEAD + ("struct ElemSpec", "constexpr ElemSpec ELEM_SPEC",
-                    "template <Elem E>"),
-            replace={"template <Elem E>": elem_traits(src, (elem_a, elem_b))})
+            DEAD + ("struct ElemSpec", "constexpr ElemSpec ELEM_SPEC", "template <Elem E>"),
+            replace={"template <Elem E>": elem_traits(src, elems(dtype))},
+        )
     else:
-        fields, extra = smm_policy(dtype, config, k)
-        kernel_header, launch = "smm.cuh", SMM_LAUNCH
+        launch = SMM_LAUNCH
         types = drop_blocks(inline(src / "types.cuh"), DEAD)
 
+    shared_body = take_includes(inline(common / "ptx.cuh"))
     types_body = take_includes(types)
-    device_body = take_includes(inline(src / "device_utils.cuh"))
-    kernel_body = take_includes(inline(src / kernel_header))
-    host_body = take_includes(inline(src / "host_utils.cuh"))
+    device_body = take_includes(inline(src / "ptx.cuh") + "\n\n" + inline(common / "clc.cuh"))
+    kernel_body = take_includes(inline(src / "kernel.cuh"))
+    host_body = take_includes(inline(common / "tmap.cuh") + "\n\n" + inline(src / "tmap.cuh"))
 
-    constants = "\n".join(f"constexpr int {key} = {int(value)};"
-                          for key, value in extra.items())
+    constants = "\n".join(f"constexpr int {key} = {int(value)};" for key, value in extra.items())
     staged = (
         "#pragma once\n\n"
         + "".join(f"{line}\n" for line in HEADER_INCLUDES)
         + "\n// ---- the tuned configuration, as compile-time constants ----\n"
         f"constexpr int M = {m};\nconstexpr int N = {n};\n"
         f"constexpr int K = {k};\n{constants}\n\n"
-        + pin_policy(strip_static_asserts(types_body), fields) + "\n\n"
-        + pin_policy(strip_static_asserts(device_body), fields) + "\n\n"
-        + pin_policy(strip_static_asserts(kernel_body), fields) + "\n")
+        + pin_policy(strip_static_asserts(shared_body), fields)
+        + "\n\n"
+        + pin_policy(strip_static_asserts(types_body), fields)
+        + "\n\n"
+        + pin_policy(strip_static_asserts(device_body), fields)
+        + "\n\n"
+        + pin_policy(strip_static_asserts(kernel_body), fields)
+        + "\n"
+    )
 
     members = geom_members(staged)
     with tempfile.TemporaryDirectory(prefix="opengemm_emit_") as tmp:
@@ -807,25 +761,32 @@ def emit(dtype, m, n, k, config, stem):
     acc_type = "int" if values.get("acc", 0) == 1 else "float"
     tmaps = tmap_names(src, dtype, impl, acc_type)
     staged = flatten_geom(staged, members, values, tmaps, acc_type)
-    staged = drop_blocks(staged, ("struct KindOf", "template <Elem E>",
-                                  "template <>", "template <SElem"))
+    staged = drop_blocks(
+        staged, ("struct KindOf", "template <Elem E>", "template <>", "template <SElem")
+    )
     staged = expand_clc(staged)
     staged = flatten_enums(staged)
     staged = drop_alias_layer(staged)
     staged = bind_launch_args(staged)
 
-    args = ("const void *a, const void *b, void *c, cudaStream_t stream"
-            if impl == "mm" else
-            "const void *a, const void *b, const void *sfa, const void *sfb,\n"
-            "                       void *c, cudaStream_t stream")
-    # The accumulating epilogue adds into C, so C has to start at zero.
-    accumulates = (int(extra.get("SPLITS", 1)) > 1
-                   or int(values.get("rk", 1)) > 1)
-    zero_c = ("\n  cudaMemsetAsync(c, 0, (size_t)M * N * sizeof(%s), stream);"
-              % acc_type) if accumulates else ""
-    body = (host_body + "\n\n"
-            + f"extern \"C\" void {entry}({args});\n"
-            + launch.format(name=entry, zero_c=zero_c))
+    args = (
+        "const void *a, const void *b, void *c, cudaStream_t stream"
+        if impl == "mm"
+        else "const void *a, const void *b, const void *sfa, const void *sfb,\n"
+        "                       void *c, cudaStream_t stream"
+    )
+    accumulates = int(extra.get("SPLITS", 1)) > 1 or int(values.get("rk", 1)) > 1
+    zero_c = (
+        ("\n  cudaMemsetAsync(c, 0, (size_t)M * N * sizeof(%s), stream);" % acc_type)
+        if accumulates
+        else ""
+    )
+    body = (
+        host_body
+        + "\n\n"
+        + f'extern "C" void {entry}({args});\n'
+        + launch.format(name=entry, zero_c=zero_c)
+    )
     body = re.sub(r"^\s*using G = Geom;\n", "", body, flags=re.M)
     body = re.sub(r"typename (?:G|Geom)::acc_t", acc_type, body)
     body = re.sub(r"\b(?:G|Geom)::(\w+)", r"G_\1", body)
@@ -833,11 +794,8 @@ def emit(dtype, m, n, k, config, stem):
     combined = plain_constant_names(staged + "\n\x00\n" + body)
     header, source = combined.split("\n\x00\n")
     header = strip_comments(header)
-    source = strip_comments(f"#include \"{stem}.cuh\"\n\n" + source)
+    source = strip_comments(f'#include "{stem}.cuh"\n\n' + source)
 
-    # Every constant is a literal now, the kernel's own constexpr locals
-    # included: fold every branch and ternary on them, bind the helper
-    # templates, and drop what nothing reaches.
     kernel = f"{impl}_gemm_kernel"
     with tempfile.TemporaryDirectory(prefix="opengemm_emit_") as tmp:
         known = evaluate_locals(header, kernel, Path(tmp))
@@ -845,83 +803,42 @@ def emit(dtype, m, n, k, config, stem):
     for label, text in (("header", header), ("source", source)):
         left = re.search(r".*if constexpr.*", text)
         if left:
-            raise RuntimeError(f"a branch survived folding in the {label}: "
-                               f"{left.group(0).strip()}")
+            raise RuntimeError(f"a branch survived folding in the {label}: {left.group(0).strip()}")
 
-    tag = (f"{MARK} {impl} {dtype} {m} {n} {k} {entry}\n"
-           f"// config: " + " ".join(f"{key}={int(value)}" for key, value
-                                     in sorted(config.items())) + "\n")
+    tag = (
+        f"{MARK} {impl} {dtype} {m} {n} {k} {entry}\n"
+        f"// config: "
+        + " ".join(f"{key}={int(value)}" for key, value in sorted(config.items()))
+        + "\n"
+    )
     return tag + source, tag + header
 
 
 def parse_tag(text):
-    """Return `(impl, dtype, m, n, k, entry)` from an emitted file's first
-    line.
-    """
+    """`(impl, dtype, m, n, k, entry)` from an emitted file's first line."""
     first = text.split("\n", 1)[0]
     if not first.startswith(MARK):
-        raise ValueError("not an opengemm kernel: the first line should read "
-                         f"'{MARK} <impl> <dtype> <M> <N> <K> <entry>'")
-    impl, dtype, m, n, k, entry = first[len(MARK):].split()
+        raise ValueError(
+            "not an opengemm kernel: the first line should read "
+            f"'{MARK} <impl> <dtype> <M> <N> <K> <entry>'"
+        )
+    impl, dtype, m, n, k, entry = first[len(MARK) :].split()
     return impl, dtype, int(m), int(n), int(k), entry
 
 
-OUT_NAME = {torch.float32: "f32", torch.int32: "s32",
-            torch.bfloat16: "bf16"}
-
-
-def default_stem(d, m, n, k):
-    """Return the file stem a kernel takes when the caller names no file: its
-    `atype`, `btype`, `sftype` and `dtype`, then the shape.
-
-    A block-scaled format keeps its sftype, which is what tells nvfp4 from
-    mxfp4 — both hold e2m1 operands and output bf16.
-    """
-    out = OUT_NAME[d.out_dtype]
-    if d.impl == "smm":
-        return f"{d.elem}_{d.elem}_{d.sf}_{out}_{m}_{n}_{k}"
-    return f"{d.elem_a}_{d.elem_b}_{out}_{m}_{n}_{k}"
-
-
-# The (element, scale) pair each block-scaled format is spelled by, so a
-# caller naming both lands on the format the operand dtypes would have.
-SCALED_OF_ELEMS = {(d.elem, d.sf): name for name, d in SCALED.items()}
-
-
-def _named_dtype(atype, btype, sftype, dtype):
-    """Return the name configs.json spells the GEMM `atype`, `btype`,
-    `sftype` and `dtype` pick out.
-
-    The operands name the format; `dtype` is the output the format already
-    fixes, so it is checked rather than read.
-    """
-    if atype is None:
-        raise ValueError("without operands, pass atype= (with sftype= for a "
-                         "block-scaled format)")
-    if sftype is not None:
-        other = btype or atype
-        if other != atype:
-            raise ValueError("a block-scaled GEMM takes one element: "
-                             f"atype={atype!r} with btype={other!r}")
-        name = SCALED_OF_ELEMS.get((atype, sftype))
-        if name is None:
-            raise ValueError(f"atype={atype!r} with sftype={sftype!r} is "
-                             f"no format; have {list(SCALED_OF_ELEMS)}")
-    else:
-        other = btype or atype
-        name = atype if atype == other else f"{atype}x{other}"
-        if name not in DENSE:
-            raise ValueError(f"{atype!r} x {other!r} is no dense element; "
-                             f"have {list(DENSE)}")
-    out = OUT_NAME[DTYPES[name].out_dtype]
-    if dtype is not None and dtype != out:
-        raise ValueError(f"{name} outputs {out}, not dtype={dtype!r}")
-    return name
-
-
-def emit_kernel(a=None, b=None, sfa=None, sfb=None, file=None, atype=None,
-                btype=None, m=None, n=None, k=None, sftype=None,
-                dtype=None):
+def emit_kernel(
+    a=None,
+    b=None,
+    sfa=None,
+    sfb=None,
+    file=None,
+    atype=None,
+    btype=None,
+    m=None,
+    n=None,
+    k=None,
+    sftype=None,
+):
     """Emit a standalone CUDA kernel for one dtype and shape.
 
     Takes operands, or the shape and element names on their own:
@@ -933,8 +850,7 @@ def emit_kernel(a=None, b=None, sfa=None, sfb=None, file=None, atype=None,
 
     Only shapes and dtypes are read, so meta tensors work. The configuration is
     the stored one for the (dtype, shape) or, when there is none, the winner of
-    a tuning sweep run first and stored in configs.json, a few minutes on the
-    GPU.
+    a tuning sweep run first and stored, a few minutes on the GPU.
 
     Args:
         a: `(M, K)` operand, or a meta tensor of that shape and dtype; None to
@@ -943,18 +859,16 @@ def emit_kernel(a=None, b=None, sfa=None, sfb=None, file=None, atype=None,
         sfa: Scales of `a`, for a block-scaled kernel; only the dtype is read.
         sfb: Scales of `b`.
         file: Stem to write `<file>.cu` and `<file>.cuh` to; with None, the
-            kernel names itself after its types and shape.
-        atype: Element of `a`: `"bf16"`, `"e4m3"`, `"e2m1"` and the rest of
-            `ELEMS`. Names a `uint8` operand, or `a` itself without operands.
+            kernel names itself `<dtype>_<M>_<N>_<K>`.
+        atype: Element of `a`: "bf16", "e4m3", "e2m1" and the rest. Names a
+            `uint8` operand, or `a` itself without operands.
         btype: Element of `b`; defaults to `atype`.
         m: Rows of A and C; operands give it instead.
         n: Rows of B and columns of C.
         k: Reduction length, in values rather than the packed extent.
-        sftype: Scale element, `"ue4m3"` or `"ue8m0"`, which with `atype`
-            picks the block-scaled format: e2m1 x ue4m3 is nvfp4, e4m3 x ue8m0
-            is mxfp8, e2m1 x ue8m0 is mxfp4.
-        dtype: Output element, `"f32"`, `"s32"` or `"bf16"`. The operands fix
-            it, so it is checked when given rather than chosen.
+        sftype: Scale element, "ue4m3" or "ue8m0", which with `atype` picks
+            the block-scaled format: e2m1 x ue4m3 is nvfp4, e4m3 x ue8m0 is
+            mxfp8, e2m1 x ue8m0 is mxfp4.
 
     Returns:
         `(source, header)` text. The entry point is `extern "C" void
@@ -962,19 +876,19 @@ def emit_kernel(a=None, b=None, sfa=None, sfb=None, file=None, atype=None,
         `smm_<dtype>_<M>_<N>_<K>(a, b, sfa, sfb, c, stream)` for block-scaled;
         `run_kernel` compiles and calls it.
     """
+    name = dtype_name(a, b, sfa, atype, btype, sftype)
     if a is not None:
-        from .api import dtype_name
-        dtype = dtype_name(a, b, sfa, atype, btype)
-        d = DTYPES[dtype]
-        m, n, k = a.size(0), b.size(0), d.k_values(a.size(1))
-    else:
-        dtype = _named_dtype(atype, btype, sftype, dtype)
-        d = DTYPES[dtype]
-        if m is None or n is None or k is None:
-            raise ValueError("without operands, pass m, n and k")
-    config = resolve_config(dtype, m, n, k)
-    file = Path(file) if file else Path(default_stem(d, m, n, k))
-    source, header = emit(dtype, m, n, k, config, file.stem)
+        m, n, k = a.size(0), b.size(0), k_of(DTYPES[name], a.size(1))
+    elif None in (m, n, k):
+        raise ValueError("without operands, pass m, n and k")
+    config = resolve_config(name, m, n, k)
+    return write_kernel(name, config, m, n, k, file)
+
+
+def write_kernel(name, config, m, n, k, file=None):
+    """Write the .cu and .cuh pair for one configuration; returns `(source, header)` text."""
+    file = Path(file) if file else Path(f"{name}_{m}_{n}_{k}")
+    source, header = emit(name, m, n, k, config, file.stem)
     file.parent.mkdir(parents=True, exist_ok=True)
     file.with_suffix(".cuh").write_text(header)
     file.with_suffix(".cu").write_text(source)

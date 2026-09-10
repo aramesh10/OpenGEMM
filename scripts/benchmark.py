@@ -42,12 +42,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import torch  # noqa: E402
+import torch
 
-from opengemm import DTYPES  # noqa: E402
-from opengemm.python import bench  # noqa: E402
-from opengemm.python.build import ROOT, extension  # noqa: E402
-from opengemm.python.tune import resolve_config  # noqa: E402
+from opengemm import DTYPES
+from opengemm.python import bench, capi, configs
+from opengemm.python.build import ROOT
+from opengemm.python.configs import resolve_config
 
 LOW_SPEEDUP = 0.95
 BAD_SPEEDUP = 0.90
@@ -67,7 +67,7 @@ def cuda_healthy():
         return False
 
 
-def row_for(ext, dtype_name, m, n, k, config, quick):
+def row_for(dtype_name, m, n, k, config, quick):
     """Measure one (dtype, shape) against cuBLAS.
 
     A launch or measurement failure is recorded as status "error" rather than
@@ -78,10 +78,9 @@ def row_for(ext, dtype_name, m, n, k, config, quick):
     Returns:
         The result row, as written to the JSON output.
     """
-    dtype = DTYPES[dtype_name]
     row = {"dtype": dtype_name, "m": m, "n": n, "k": k}
     try:
-        buffers = bench.make_input_set(m, n, k, dtype)
+        buffers = bench.make_input_set(m, n, k, dtype_name)
     except Exception as exc:
         row["status"] = "error"
         row["note"] = f"could not build inputs: {str(exc).splitlines()[0][:120]}"
@@ -90,13 +89,14 @@ def row_for(ext, dtype_name, m, n, k, config, quick):
         return row
 
     try:
-        wrong = bench.correctness_error(ext, buffers, config, dtype, k)
+        bound = capi.bind(dtype_name, m, n, k, config)
+        wrong = bench.correctness_error(buffers, bound, dtype_name, k)
         if wrong:
             row["status"] = "incorrect"
             row["note"] = wrong
         else:
-            kernel = bench.runner(ext, buffers, config, dtype)
-            baseline, why = bench.baseline_for(buffers, dtype)
+            kernel = bench.runner(buffers, bound)
+            baseline, why = bench.baseline_for(buffers, dtype_name)
             plan = bench.plan if quick else bench.report_plan
             warmup, iterations = plan(kernel)
             us = bench.timed(kernel, warmup, iterations)
@@ -122,25 +122,29 @@ def row_for(ext, dtype_name, m, n, k, config, quick):
     if not cuda_healthy():
         row["status"] = "error"
         row["fatal"] = True
-        row["note"] = (row.get("note") + "; " if row.get("note") else "") + \
-            "CUDA context is unusable after this shape (unspecified launch " \
+        row["note"] = (
+            (row.get("note") + "; " if row.get("note") else "")
+            + "CUDA context is unusable after this shape (unspecified launch "
             "failure) - the sweep stops here; rerun in a fresh process"
+        )
     return row
 
 
 def print_row(row):
     m, n, k = row["m"], row["n"], row["k"]
     if row["status"] in ("error", "incorrect"):
-        print(f"{m:>7}{n:>7}{k:>7}  {row['status'].upper():>10}  {row['note']}",
-              flush=True)
+        print(f"{m:>7}{n:>7}{k:>7}  {row['status'].upper():>10}  {row['note']}", flush=True)
         return
     cublas = f"{row['cublas_us']:>11.2f}u" if "cublas_us" in row else f"{'-':>12}"
     speedup = f"{row['speedup']:>8.3f}x" if "speedup" in row else f"{'-':>9}"
     note = ""
     if row["status"] == "no_baseline":
         note = f"  (no baseline: {row['note']})"
-    print(f"{m:>7}{n:>7}{k:>7}{cublas}{row['kernel_us']:>10.2f}u"
-          f"{row['tflops']:>10.1f}{speedup}{note}", flush=True)
+    print(
+        f"{m:>7}{n:>7}{k:>7}{cublas}{row['kernel_us']:>10.2f}u"
+        f"{row['tflops']:>10.1f}{speedup}{note}",
+        flush=True,
+    )
 
 
 def summarize(rows):
@@ -166,16 +170,20 @@ def summarize(rows):
 
 
 def print_summary(summary):
-    print(f"\n{'dtype':<11}{'shapes':>7}{'ok':>5}{'noBase':>8}"
-          f"{'bad':>5}{'min':>8}{'median':>8}{'max':>8}{'<0.95x':>8}{'<0.90x':>8}")
+    print(
+        f"\n{'dtype':<11}{'shapes':>7}{'ok':>5}{'noBase':>8}"
+        f"{'bad':>5}{'min':>8}{'median':>8}{'max':>8}{'<0.95x':>8}{'<0.90x':>8}"
+    )
     for name in sorted(summary):
         s = summary[name]
         bad = s["incorrect"] + s["error"]
         fmt = lambda v: f"{v:>8.3f}" if v is not None else f"{'-':>8}"
-        print(f"{name:<11}{s['shapes']:>7}{s['ok']:>5}"
-              f"{s['no_baseline']:>8}{bad:>5}{fmt(s['min_speedup'])}"
-              f"{fmt(s['median_speedup'])}{fmt(s['max_speedup'])}"
-              f"{s['below_0.95x']:>8}{s['below_0.90x']:>8}")
+        print(
+            f"{name:<11}{s['shapes']:>7}{s['ok']:>5}"
+            f"{s['no_baseline']:>8}{bad:>5}{fmt(s['min_speedup'])}"
+            f"{fmt(s['median_speedup'])}{fmt(s['max_speedup'])}"
+            f"{s['below_0.95x']:>8}{s['below_0.90x']:>8}"
+        )
 
 
 def output_path(explicit):
@@ -187,26 +195,41 @@ def output_path(explicit):
 
 def main():
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--dtype", nargs="+", choices=sorted(DTYPES), default=None,
-                        help="default: every dtype")
-    parser.add_argument("--shape", nargs=3, type=int, default=None,
-                        metavar=("M", "N", "K"), help="default: shapes.jsonc")
-    parser.add_argument("--tune-missing", action="store_true",
-                        help="tune and store shapes with no stored configuration "
-                             "first, then measure them too")
-    parser.add_argument("--quick", action="store_true",
-                        help="ablation-length timing window, not the reported one")
-    parser.add_argument("--output", default=None,
-                        help="JSON results path (default results/perf_<gpu>_<date>.json)")
-    parser.add_argument("--resume", action="store_true",
-                        help="skip (dtype, shape) pairs already in --output and "
-                             "extend it, instead of measuring everything again - "
-                             "for continuing after the sweep aborts")
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--dtype", nargs="+", choices=sorted(DTYPES), default=None, help="default: every dtype"
+    )
+    parser.add_argument(
+        "--shape",
+        nargs=3,
+        type=int,
+        default=None,
+        metavar=("M", "N", "K"),
+        help="default: shapes.jsonc",
+    )
+    parser.add_argument(
+        "--tune-missing",
+        action="store_true",
+        help="tune and store shapes with no stored configuration first, then measure them too",
+    )
+    parser.add_argument(
+        "--quick", action="store_true", help="ablation-length timing window, not the reported one"
+    )
+    parser.add_argument(
+        "--output", default=None, help="JSON results path (default results/perf_<gpu>_<date>.json)"
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="skip (dtype, shape) pairs already in --output and "
+        "extend it, instead of measuring everything again - "
+        "for continuing after the sweep aborts",
+    )
     args = parser.parse_args()
 
     dtype_names = args.dtype or sorted(DTYPES)
-    shapes = [tuple(args.shape)] if args.shape else bench.load_shapes()
+    shapes = [tuple(args.shape)] if args.shape else configs.load_shapes()
 
     path = output_path(args.output)
     rows = []
@@ -222,27 +245,26 @@ def main():
     for name in dtype_names:
         if aborted:
             break
-        dtype = DTYPES[name]
-        ext = extension(dtype.impl)
-        configs = bench.load_configs(dtype.impl, name)
+        stored = configs.load_configs(DTYPES[name].impl, name)
 
         print(f"\n{bench.env_stamp()['gpu']}  dtype {name}")
-        print(f"{'M':>7}{'N':>7}{'K':>7}{'cuBLAS':>12}{'kernel':>11}"
-              f"{'TFLOP/s':>10}{'speedup':>9}")
+        print(f"{'M':>7}{'N':>7}{'K':>7}{'cuBLAS':>12}{'kernel':>11}{'TFLOP/s':>10}{'speedup':>9}")
         for m, n, k in shapes:
             if (name, m, n, k) in done:
                 continue
-            config = configs.get((name, m, n, k))
+            config = stored.get((name, m, n, k))
             if config is None:
                 if not (args.tune_missing or args.shape):
                     continue
                 try:
                     config = resolve_config(name, m, n, k)
                 except (ValueError, RuntimeError) as exc:
-                    print(f"{m:>7}{n:>7}{k:>7}  {'SKIPPED':>10}  "
-                          f"{str(exc).splitlines()[0][:120]}", flush=True)
+                    print(
+                        f"{m:>7}{n:>7}{k:>7}  {'SKIPPED':>10}  {str(exc).splitlines()[0][:120]}",
+                        flush=True,
+                    )
                     continue
-            row = row_for(ext, name, m, n, k, config, args.quick)
+            row = row_for(name, m, n, k, config, args.quick)
             print_row(row)
             rows.append(row)
             if row.get("fatal"):
@@ -258,13 +280,16 @@ def main():
     if problems:
         print(f"\n{len(problems)} shape(s) failed:")
         for r in problems:
-            print(f"  {r['dtype']:<10} {r['m']}x{r['n']}x{r['k']}: "
-                  f"{r['status']} - {r['note']}")
+            print(f"  {r['dtype']:<10} {r['m']}x{r['n']}x{r['k']}: {r['status']} - {r['note']}")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"env": bench.env_stamp(), "rows": rows,
-                                "summary": summary, "aborted": aborted},
-                               indent=1) + "\n")
+    path.write_text(
+        json.dumps(
+            {"env": bench.env_stamp(), "rows": rows, "summary": summary, "aborted": aborted},
+            indent=1,
+        )
+        + "\n"
+    )
     print(f"\nwrote {path}")
 
     raise SystemExit(1 if problems or aborted else 0)

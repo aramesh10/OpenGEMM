@@ -1,49 +1,7 @@
 #pragma once
 
-#include "device_utils.cuh"
-#include "types.cuh"
-
-struct CLC {
-    int arrived;
-    int finished;
-    int ready;
-    uint4 *handles;
-};
-
-template <int CTA_GROUP>
-__device__ __forceinline__ void clc_issue(const CLC &clc, int tile_idx, bool is_leader) {
-    const int slot  = tile_idx % CLC_DEPTH;
-    const int phase = (tile_idx / CLC_DEPTH) & 1;
-
-    const int answer_landed = clc.arrived  + slot * MBAR;
-    const int slot_free     = clc.finished + slot * MBAR;
-    const int peer_here     = clc.ready    + slot * MBAR;
-
-    mbar_arrive_tx(answer_landed, sizeof(uint4));
-    if (!is_leader) {
-        mbar_arrive_cluster_to(peer_here, 0);
-        return;
-    }
-    if (tile_idx >= CLC_DEPTH)      mbar_wait_cluster(slot_free, phase ^ 1);
-    if constexpr (CTA_GROUP == 2)   mbar_wait_cluster(peer_here, phase);
-    clc_schedule(&clc.handles[slot], answer_landed);
-}
-
-template <int CTA_GROUP, bool USE_CLC>
-__device__ __forceinline__ int next_tile(const CLC &clc, int tile_id, int tile_idx, int num_clusters) {
-    if constexpr (!USE_CLC)
-        return tile_id + num_clusters;
-    const int slot  = tile_idx % CLC_DEPTH;
-    const int phase = (tile_idx / CLC_DEPTH) & 1;
-
-    const int answer_landed = clc.arrived  + slot * MBAR;
-    const int slot_free     = clc.finished + slot * MBAR;
-
-    mbar_wait_cluster(answer_landed, phase);
-    const uint4 next = clc_query(&clc.handles[slot]);
-    mbar_arrive_cluster_to(slot_free, 0);
-    return next.x ? next.y / CTA_GROUP : -1;
-}
+#include "common/clc.cuh"
+#include "ptx.cuh"
 
 template <Policy P>
 __global__ __launch_bounds__(Geom<P>::threads, 1)
@@ -176,7 +134,7 @@ void smm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     __shared__ __align__(16) uint4 clc_handles[CLC_DEPTH];
     __shared__ int clc_next;
 
-    const CLC clc = {clc_base,
+    const Clc clc = {clc_base,
                      clc_base + CLC_DEPTH * MBAR,
                      clc_base + 2 * CLC_DEPTH * MBAR,
                      clc_handles};
@@ -642,4 +600,3 @@ void smm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     else                                 __syncthreads();
     if (warp == MMA_WARP) tmem_dealloc<CTA_COUNT, TMEM_COLS>(0);
 }
-

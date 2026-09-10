@@ -1,6 +1,3 @@
-"""Library messages, on stderr with the ``[opengemm]`` prefix so a caller's
-stdout stays its own.
-"""
 import sys
 
 def log(message):

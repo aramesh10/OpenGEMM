@@ -1,25 +1,21 @@
-"""Inputs, references and the timing harness the scripts share.
+"""Inputs, references, torch baselines and the timing harness the tuner and the scripts share.
 
-Timing follows NVIDIA's GEMM measurement methodology: rotate through enough
-buffer copies to exceed twice L2, so no iteration reads its predecessor's
-cache lines; warm up for at least 10,000 iterations and profile for 4,000,
-more where a shape is short; and time the kernel and cuBLAS through the
-same function.
+Timing rotates through enough buffer copies to exceed twice L2, so no
+iteration reads its predecessor's cache lines, and times the kernel and
+cuBLAS through the same function.
 """
 
 import collections
 import datetime
 import itertools
-import json
 import os
-import re
 import statistics
-from pathlib import Path
+from typing import NamedTuple
 
 import torch
 
-from .build import PACKAGE, SRC
-from .dtypes import DTYPES, ELEM_INDEX, quantize, to_blocked
+from .dtypes import DTYPES, elems, k_of, sf_block
+from .quant import SMALL_FLOATS, pack, quantize, round_tf32, to_blocked, unpack
 
 REPORT_WARMUP = 10_000
 REPORT_ITERATIONS = 4_000
@@ -28,239 +24,188 @@ WINDOW_CAP_S = 4.0
 LAUNCH_CHUNK = 256
 LAUNCH_DEPTH = 2
 
-# configs.json keys in the order the extension's launcher() takes them.
-CONFIG_KEYS = {
-    "mm": (("use_2cta", bool), ("output_n", int), ("use_clc", bool),
-           ("supergroup", int), ("swap_ab", bool), ("k_pad", -1),
-           ("epi_direct", 0), ("epi_hold", 1), ("cluster_n", 1),
-           ("stages", 0), ("epi_double", 0), ("split_k", 1),
-           ("l2_promo", 0), ("block_m", 128), ("cluster_m", 0),
-           ("cluster_k", 1), ("walk", 0)),
-    "smm": (("use_2cta", bool), ("output_n", int), ("use_clc", bool),
-            ("supergroup", int), ("swap_ab", bool), ("epi_direct", 0),
-            ("epi_trade", 0), ("deep_stages", 0), ("cluster_m", 0),
-            ("cluster_n", 1), ("cluster_k", 1), ("persistent", 1)),
+# (rtol, atol) at K = 4096, scaled up with sqrt(K / 4096) past it.
+TOLERANCE = {
+    "s8": (0.0, 0.0),
+    "u8": (0.0, 0.0),
+    "nvfp4": (2.0**-6, 2.0**-5),
+    "mxfp8": (2.0**-6, 2.0**-5),
+    "mxfp4": (2.0**-6, 2.0**-5),
+}
+DEFAULT_TOLERANCE = (1.0e-3, 2.0e-2)
+INT_RANGE = {"s8": (-127, 128), "u8": (0, 256)}
+
+# torch's kernel for each format, or why there is none.
+BASELINE = {
+    "bf16": "mm",
+    "f16": "mm",
+    "tf32": "mm_tf32",
+    "s8": "int_mm",
+    "e4m3": "scaled_mm",
+    "e4m3xe5m2": "scaled_mm",
+    "nvfp4": "scaled_mm_blocked",
+    "mxfp8": "scaled_mm_blocked",
+}
+NO_BASELINE = {
+    "u8": "torch._int_mm takes signed operands only",
+    "e5m2": "torch._scaled_mm refuses e5m2 x e5m2",
+    "e3m2": "torch has no float6 dtype",
+    "e2m3": "torch has no float6 dtype",
+    "e2m1": "cuBLAS exposes no dense fp4 GEMM",
+    "mxfp4": "torch._scaled_mm refuses e2m1 operands with e8m0 block scales",
 }
 
 
-def load_shapes():
-    """Return the distinct (M, N, K) triples of shapes.jsonc, in file order."""
-    seen, shapes = set(), []
-    text = re.sub(r"//[^\n]*", "", (PACKAGE / "shapes.jsonc").read_text())
-    for m, n, k in json.loads(text):
-        if (m, n, k) not in seen:
-            seen.add((m, n, k))
-            shapes.append((m, n, k))
-    return shapes
+class Inputs(NamedTuple):
+    """One rotation of operands, with the output the kernel writes into."""
+
+    a: torch.Tensor
+    b: torch.Tensor
+    sfa: torch.Tensor = None  # blocked scales, what the kernel reads
+    sfb: torch.Tensor = None
+    sfa_raw: torch.Tensor = None  # (rows, K / block) scales, what the reference reads
+    sfb_raw: torch.Tensor = None
+    out: torch.Tensor = None
 
 
+def tolerance(name, k):
+    """`(rtol, atol)` for a reduction of length `k`."""
+    rtol, atol = TOLERANCE.get(name, DEFAULT_TOLERANCE)
+    scale = max(1.0, (k / 4096) ** 0.5)
+    return rtol * scale, atol * scale
 
-def make_inputs(m, n, k, dtype, seed=0, device="cuda"):
-    """Build the operands for one GEMM.
 
-    Args:
-        m: Rows of A and C.
-        n: Rows of B and columns of C.
-        k: Reduction length in elements.
-        dtype: An entry of `DTYPES`.
-        seed: Generator seed, so rotations differ.
-        device: Where the tensors live.
-
-    Returns:
-        Dense: `(a, b)`. Block-scaled: `(a, b, sfa_blocked, sfb_blocked, sfa,
-        sfb)`, the last two being the unblocked scales the reference needs.
-    """
+def make_inputs(m, n, k, name, seed=0, device="cuda"):
+    """Build the operands for one GEMM; `seed` makes each rotation differ."""
+    d = DTYPES[name]
     generator = torch.Generator(device=device).manual_seed(seed)
-    if dtype.impl == "smm":
-        a = torch.rand((m, k), generator=generator, device=device) * 2 - 1
-        b = torch.rand((n, k), generator=generator, device=device) * 2 - 1
-        a_packed, sfa = quantize(a.to(torch.bfloat16), dtype)
-        b_packed, sfb = quantize(b.to(torch.bfloat16), dtype)
-        return (a_packed.view(dtype.elem_dtype), b_packed.view(dtype.elem_dtype),
-                to_blocked(sfa), to_blocked(sfb), sfa, sfb)
-    if dtype.out_dtype is torch.int32:
-        low, high = dtype.int_range
-        a = torch.randint(low, high, (m, k), generator=generator,
-                          device=device, dtype=torch.int32)
-        b = torch.randint(low, high, (n, k), generator=generator,
-                          device=device, dtype=torch.int32)
-        return (a.to(dtype.torch_dtype).contiguous(),
-                b.to(dtype.torch_dtype_b).contiguous())
+    if d.out is torch.int32:
+        low, high = INT_RANGE[name]
+        a = torch.randint(low, high, (m, k), generator=generator, device=device, dtype=torch.int32)
+        b = torch.randint(low, high, (n, k), generator=generator, device=device, dtype=torch.int32)
+        return Inputs(a.to(d.a).contiguous(), b.to(d.b).contiguous())
     a = torch.rand((m, k), generator=generator, device=device) * 2 - 1
     b = torch.rand((n, k), generator=generator, device=device) * 2 - 1
-    if dtype.quantize is not None:
-        a, b = dtype.quantize(a), dtype.quantize(b)
-    if dtype.packer is not None:
-        return dtype.packer(a), dtype.packer(b)
-    return (a.to(dtype.torch_dtype).contiguous(),
-            b.to(dtype.torch_dtype_b).contiguous())
+    if d.impl == "smm":
+        a, sfa = quantize(a.to(torch.bfloat16), name)
+        b, sfb = quantize(b.to(torch.bfloat16), name)
+        return Inputs(a, b, to_blocked(sfa), to_blocked(sfb), sfa, sfb)
+    if name == "tf32":
+        a, b = round_tf32(a), round_tf32(b)
+    if d.bits < 8:
+        return Inputs(pack(a, name), pack(b, name))
+    return Inputs(a.to(d.a).contiguous(), b.to(d.b).contiguous())
 
 
-def out_buffer(m, n, dtype, device="cuda"):
-    """Return an output buffer laid out the way the kernel writes it."""
-    if dtype.impl == "smm":
-        return torch.empty((m, n), device=device, dtype=torch.bfloat16)
-    return torch.empty_strided((m, n), (1, m), device=device,
-                               dtype=dtype.out_dtype)
+def out_buffer(m, n, name, device="cuda"):
+    return torch.empty((m, n), device=device, dtype=DTYPES[name].out)
 
 
-def make_input_set(m, n, k, dtype, seed=0, cap_bytes=48 << 30):
-    """Build enough input rotations to exceed twice L2, each with its own
-    output.
-
-    Args:
-        m: Rows of A and C.
-        n: Rows of B and columns of C.
-        k: Reduction length in elements.
-        dtype: An entry of `DTYPES`.
-        seed: Seed of the first rotation; later ones count up from it.
-        cap_bytes: Upper bound on the bytes of all rotations together.
-
-    Returns:
-        A list of `make_inputs` tuples, each with an output buffer appended.
-    """
-    out_bytes = 2 if dtype.impl == "smm" else torch.empty(
-        (), dtype=dtype.out_dtype).element_size()
-    bits = 4 if dtype.impl == "smm" and dtype.elem == "e2m1" else \
-        8 if dtype.impl == "smm" else dtype.bits
-    iteration_bytes = (m * k + n * k) * bits // 8 + m * n * out_bytes
-    if dtype.impl == "smm":
-        iteration_bytes += (m * k + n * k) // dtype.block
+def make_input_set(m, n, k, name, seed=0, cap_bytes=48 << 30):
+    """Enough input rotations to exceed twice L2, each with its own output."""
+    d = DTYPES[name]
+    iteration_bytes = (m * k + n * k) * d.bits // 8 + m * n * d.out.itemsize
+    if d.impl == "smm":
+        iteration_bytes += (m * k + n * k) // sf_block(d)
     l2_bytes = torch.cuda.get_device_properties(0).L2_cache_size
-    # Twice L2 of rotations defeats the cache; the cap bounds a huge shape.
-    rotations = max(2, min(-(-2 * l2_bytes // iteration_bytes),
-                           cap_bytes // iteration_bytes))
-    return [make_inputs(m, n, k, dtype, seed + i) + (out_buffer(m, n, dtype),)
-            for i in range(rotations)]
+    rotations = max(2, min(-(-2 * l2_bytes // iteration_bytes), cap_bytes // iteration_bytes))
+    return [
+        make_inputs(m, n, k, name, seed + i)._replace(out=out_buffer(m, n, name))
+        for i in range(rotations)
+    ]
 
 
-def reference(entry, dtype):
-    """Compute the reference product in fp32, or exactly for the integer types.
+def _values(t, elem, k):
+    """A packed operand as float32 values."""
+    if elem in SMALL_FLOATS:
+        return unpack(t.view(torch.uint8), elem, k)
+    return t.float()
 
-    Args:
-        entry: One rotation from `make_inputs`.
-        dtype: An entry of `DTYPES`.
 
-    Returns:
-        `(M, N)` in the kernel's output dtype, row-major.
-    """
-    a, b = entry[0], entry[1]
+def reference(entry, name):
+    """The reference product: fp32, or exact for the integer types, row-major."""
+    d = DTYPES[name]
     previous = torch.backends.cuda.matmul.allow_tf32
-    # The reference must not round through tf32.
     torch.backends.cuda.matmul.allow_tf32 = False
     try:
-        if dtype.impl == "smm":
-            sfa, sfb = entry[4], entry[5]
-            k = dtype.per_byte * a.size(1)
-            a = dtype.unpacker(a.view(torch.uint8), k) \
-                * sfa.float().repeat_interleave(dtype.block, dim=1)
-            b = dtype.unpacker(b.view(torch.uint8), k) \
-                * sfb.float().repeat_interleave(dtype.block, dim=1)
+        if d.impl == "smm":
+            elem = elems(name)[0]
+            block = sf_block(d)
+            k = k_of(d, entry.a.size(1))
+            a = _values(entry.a, elem, k) * entry.sfa_raw.float().repeat_interleave(block, dim=1)
+            b = _values(entry.b, elem, k) * entry.sfb_raw.float().repeat_interleave(block, dim=1)
             return (a @ b.t()).to(torch.bfloat16)
-        if dtype.out_dtype is torch.int32:
-            return torch.mm(a.double(), b.double().t()).to(torch.int32)
-        if dtype.unpacker is not None:
-            k = a.shape[1] * 8 // dtype.bits
-            a, b = dtype.unpacker(a, k), dtype.unpacker(b, k)
-        return torch.mm(a.float(), b.float().t()).to(dtype.out_dtype)
+        if d.out is torch.int32:
+            return torch.mm(entry.a.double(), entry.b.double().t()).to(torch.int32)
+        k = k_of(d, entry.a.size(1))
+        a, b = _values(entry.a, name, k), _values(entry.b, name, k)
+        return torch.mm(a, b.t()).to(d.out)
     finally:
         torch.backends.cuda.matmul.allow_tf32 = previous
 
 
-
-def config_args(config, impl):
-    """Return `config` as the positional arguments the extension's launcher()
-    takes.
-
-    Raises:
-        KeyError: If `config` has a key the launcher does not take.
-    """
-    keys = CONFIG_KEYS[impl]
-    unknown = sorted(set(config) - {key for key, _ in keys})
-    if unknown:
-        raise KeyError(f"config has unknown keys: {unknown}")
-    return tuple(cast(config[key]) if isinstance(cast, type)
-                 else int(config.get(key, cast)) for key, cast in keys)
-
-
-def runner(ext, buffers, config, dtype):
-    """Return a zero-argument callable that launches `config` on the next
-    rotation each call.
-    """
+def runner(buffers, bound):
+    """A zero-argument callable that launches the bound kernel on the next rotation each call."""
+    lib, g = bound
     cycle = itertools.cycle(buffers)
-    if dtype.impl == "smm":
-        launch = ext.launcher(*config_args(config, "smm"))
-
-        def call():
-            a, b, sfa, sfb, _, _, c = next(cycle)
-            return launch(a, b, sfa, sfb, out=c)
-        return call
-
-    launch = ext.launcher(*config_args(config, "mm"),
-                          ELEM_INDEX[dtype.elem_a], ELEM_INDEX[dtype.elem_b])
 
     def call():
-        a, b, c = next(cycle)
-        return launch(a, b, out=c)
+        r = next(cycle)
+        lib.launch(g, r.a, r.b, r.sfa, r.sfb, r.out)
+        return r.out
+
     return call
 
 
-def correctness_error(ext, buffers, config, dtype, k):
-    """Return None if `config` reproduces the reference on the first rotation,
-    else the first line of the mismatch.
-    """
-    rtol, atol = dtype.tolerance(k)
+def correctness_error(buffers, bound, name, k):
+    """None if the bound kernel reproduces the reference on the first rotation,
+    else the first line of the mismatch."""
+    rtol, atol = tolerance(name, k)
     try:
-        torch.testing.assert_close(runner(ext, buffers[:1], config, dtype)(),
-                                   reference(buffers[0], dtype),
-                                   rtol=rtol, atol=atol)
+        torch.testing.assert_close(
+            runner(buffers[:1], bound)(), reference(buffers[0], name), rtol=rtol, atol=atol
+        )
         return None
     except Exception as exc:
         return str(exc).splitlines()[0][:90]
 
 
-
-def baseline_for(buffers, dtype):
-    """Return torch's kernel for this dtype over the same rotations.
+def baseline_for(buffers, name):
+    """torch's kernel for this format over the same rotations.
 
     Returns:
-        `(callable, None)`, or `(None, reason)` when torch has nothing to
-        compare
-        against.
+        `(callable, None)`, or `(None, reason)` when torch has nothing to compare against.
     """
-    if dtype.impl == "smm":
-        if dtype.baseline is False:
-            return None, dtype.baseline_unavailable
-        cycle = itertools.cycle([(a, b.t(), sfa, sfb, c)
-                                 for a, b, sfa, sfb, _, _, c in buffers])
+    kind = BASELINE.get(name)
+    if kind is None:
+        return None, NO_BASELINE[name]
+    d = DTYPES[name]
+    if kind == "scaled_mm_blocked":
+        cycle = itertools.cycle([(r.a, r.b.t(), r.sfa, r.sfb, r.out) for r in buffers])
 
         def call():
             a, b, sfa, sfb, c = next(cycle)
-            return torch._scaled_mm(a, b, sfa, sfb,
-                                    out_dtype=torch.bfloat16, out=c)
-    elif dtype.baseline is None:
-        return None, dtype.baseline_unavailable
-    elif dtype.baseline == "int_mm":
-        m, n = buffers[0][-1].shape
-        outs = [torch.empty((m, n), device="cuda", dtype=torch.int32)
-                for _ in buffers]
-        cycle = itertools.cycle([(a, b.t(), o)
-                                 for (a, b, _), o in zip(buffers, outs)])
+            return torch._scaled_mm(a, b, sfa, sfb, out_dtype=torch.bfloat16, out=c)
+
+    elif kind == "int_mm":
+        outs = [torch.empty(r.out.shape, device="cuda", dtype=torch.int32) for r in buffers]
+        cycle = itertools.cycle([(r.a, r.b.t(), o) for r, o in zip(buffers, outs)])
 
         def call():
             a, b, o = next(cycle)
             return torch._int_mm(a, b, out=o)
-    elif dtype.baseline == "scaled_mm":
+
+    elif kind == "scaled_mm":
         unit = torch.ones((), device="cuda", dtype=torch.float32)
-        cycle = itertools.cycle([(a, b.t(), c) for a, b, c in buffers])
+        cycle = itertools.cycle([(r.a, r.b.t(), r.out) for r in buffers])
 
         def call():
             a, b, c = next(cycle)
-            return torch._scaled_mm(a, b, scale_a=unit, scale_b=unit,
-                                    out_dtype=dtype.out_dtype, out=c)
+            return torch._scaled_mm(a, b, scale_a=unit, scale_b=unit, out_dtype=d.out, out=c)
+
     else:
-        tf32 = dtype.baseline == "mm_tf32"
-        cycle = itertools.cycle([(a, b.t(), c) for a, b, c in buffers])
+        tf32 = kind == "mm_tf32"
+        cycle = itertools.cycle([(r.a, r.b.t(), r.out) for r in buffers])
 
         def call():
             a, b, c = next(cycle)
@@ -269,9 +214,10 @@ def baseline_for(buffers, dtype):
             try:
                 if tf32:
                     return torch.mm(a, b, out=c)
-                return torch.mm(a, b, out=c, out_dtype=dtype.out_dtype)
+                return torch.mm(a, b, out=c, out_dtype=d.out)
             finally:
                 torch.backends.cuda.matmul.allow_tf32 = previous
+
     try:
         call()
         torch.cuda.synchronize()
@@ -280,17 +226,13 @@ def baseline_for(buffers, dtype):
         return None, str(exc).splitlines()[0][:110]
 
 
-
 def elapsed_ms(fn, iterations):
-    """Return the milliseconds `iterations` calls of `fn` take, by CUDA events.
-    """
+    """Milliseconds `iterations` calls of `fn` take, by CUDA events."""
     start, end = (torch.cuda.Event(enable_timing=True) for _ in range(2))
     start.record()
     pending = collections.deque()
     for i in range(iterations):
         fn()
-        # Bound how far the host runs ahead without ever letting the queue
-        # drain.
         if i % LAUNCH_CHUNK == LAUNCH_CHUNK - 1:
             marker = torch.cuda.Event()
             marker.record()
@@ -303,7 +245,7 @@ def elapsed_ms(fn, iterations):
 
 
 def per_iteration_ms(fn, probe=10):
-    """Return a quick estimate of one call's milliseconds."""
+    """A quick estimate of one call's milliseconds."""
     for _ in range(5):
         fn()
     torch.cuda.synchronize()
@@ -311,145 +253,43 @@ def per_iteration_ms(fn, probe=10):
 
 
 def plan(fn, warmup_s=0.3, window_ms=20, min_iterations=50, max_window_s=0.15):
-    """Return `(warmup, iterations)` for ranking candidates inside a sweep."""
+    """`(warmup, iterations)` for ranking candidates inside a sweep."""
     ms = per_iteration_ms(fn)
     affordable = int(max_window_s * 1000 / ms) + 1
-    return (max(3, int(warmup_s * 1000 / ms)),
-            max(int(window_ms / ms) + 1, min(min_iterations, affordable)))
+    warmup = max(3, int(warmup_s * 1000 / ms))
+    iterations = max(int(window_ms / ms) + 1, min(min_iterations, affordable))
+    return warmup, iterations
 
 
 def report_plan(fn, warmup_s=1.0, window_ms=300):
-    """Return `(warmup, iterations)` for a number that gets reported."""
+    """`(warmup, iterations)` for a number that gets reported."""
     ms = per_iteration_ms(fn)
     warmup = max(REPORT_WARMUP, int(warmup_s * 1000 / ms))
     iterations = max(REPORT_ITERATIONS, int(window_ms / ms) + 1)
-    return (max(8, min(warmup, int(WARMUP_CAP_S * 1000 / ms))),
-            max(8, min(iterations, int(WINDOW_CAP_S * 1000 / ms))))
+    warmup = max(8, min(warmup, int(WARMUP_CAP_S * 1000 / ms)))
+    iterations = max(8, min(iterations, int(WINDOW_CAP_S * 1000 / ms)))
+    return warmup, iterations
 
 
 def warm(fn, iterations):
     for i in range(iterations):
         fn()
-        # A periodic sync keeps a long warmup from queueing unboundedly.
         if i % 64 == 63:
             torch.cuda.synchronize()
     torch.cuda.synchronize()
 
 
 def timed(fn, warmup, iterations, repeats=5):
-    """Return the median microseconds per call over `repeats` windows."""
+    """Median microseconds per call over `repeats` windows."""
     warm(fn, warmup)
-    us = [elapsed_ms(fn, iterations) * 1000 / iterations
-          for _ in range(repeats)]
-    return statistics.median(us)
+    return statistics.median(elapsed_ms(fn, iterations) * 1000 / iterations for _ in range(repeats))
 
 
 def env_stamp():
-    """Return the GPU, device pin, torch version and date, for stored
-    measurements.
-    """
-    return {"gpu": torch.cuda.get_device_name(0),
-            "device": os.environ.get("CUDA_VISIBLE_DEVICES", "unpinned"),
-            "torch": torch.__version__,
-            "date": datetime.date.today().isoformat()}
-
-
-
-# New tunings are written here, not into the package. Set OPENGEMM_CONFIGS to
-# put the directory somewhere other than the working directory.
-TUNED_DIR = "opengemm-configs"
-TUNED_FILE = "tuned_configs.json"
-
-
-def tuned_path():
-    """Return the path of the local store new tunings are written to."""
-    directory = os.environ.get("OPENGEMM_CONFIGS")
-    return (Path(directory) if directory else Path.cwd() / TUNED_DIR) / TUNED_FILE
-
-
-def config_path(impl):
-    """Return the path of the configurations shipped with the package."""
-    return SRC / impl / "configs.json"
-
-
-def entry_key(entry):
-    return (entry["dtype"], entry["m"], entry["n"], entry["k"])
-
-
-def _entries(path):
-    return json.loads(path.read_text())["entries"] if path.exists() else []
-
-
-def tuned_entries(impl=None):
-    """Return the local store's entries, optionally one implementation's."""
-    return [e for e in _entries(tuned_path())
-            if impl is None or DTYPES[e["dtype"]].impl == impl]
-
-
-def stored_entries(impl):
-    """Return every entry for `impl`, the local store taking precedence over
-    the configurations shipped with the package.
-    """
-    entries = {entry_key(e): e for e in _entries(config_path(impl))}
-    entries.update({entry_key(e): e for e in tuned_entries(impl)})
-    return list(entries.values())
-
-
-def load_configs(impl, dtype=None):
-    """Return `{(dtype, m, n, k): config}` for the stored entries with a
-    configuration, optionally one dtype's.
-    """
-    return {entry_key(e): e["config"] for e in stored_entries(impl)
-            if e.get("config") is not None
-            and (dtype is None or e["dtype"] == dtype)}
-
-
-def stored_config(dtype, m, n, k):
-    """Return the stored configuration for a (dtype name, shape).
-
-    The local store is consulted first, then the shipped configurations.
-
-    Returns:
-        The configuration; None if untuned; or a string saying why the shape
-        cannot be served.
-    """
-    key = (dtype, m, n, k)
-    for entries in (tuned_entries(DTYPES[dtype].impl),
-                    _entries(config_path(DTYPES[dtype].impl))):
-        for e in entries:
-            if entry_key(e) == key:
-                return e["config"] if e.get("config") is not None \
-                    else e.get("unimplementable", "recorded as unimplementable")
-    return None
-
-
-def write_entry(impl, entry):
-    """Store `entry` in the local store, replacing any entry for the same
-    (dtype, shape).
-
-    Entries stay sorted by dtype and then shapes.jsonc order. Concurrent tuners
-    share the file, so writers are serialized and the file replaced atomically.
-
-    Returns:
-        The path written.
-    """
-    path = tuned_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock = path.parent / ".tuned_configs.lock"
-    with lock.open("w") as lock_file:
-        os.lockf(lock_file.fileno(), os.F_LOCK, 0)
-        store = (json.loads(path.read_text()) if path.exists()
-                 else {"arch": "sm_100", "entries": []})
-        key = entry_key(entry)
-        shape_order = {s: i for i, s in enumerate(load_shapes())}
-        dtype_order = {name: i for i, name in enumerate(DTYPES)}
-        entries = [e for e in store["entries"] if entry_key(e) != key]
-        entries.append(entry)
-        store["entries"] = sorted(
-            entries,
-            key=lambda e: (dtype_order.get(e["dtype"], 1 << 30),
-                           shape_order.get((e["m"], e["n"], e["k"]), 1 << 30)))
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(store, indent=1) + "\n")
-        temporary.replace(path)
-    return path
+    """The GPU, device pin, torch version and date, for stored measurements."""
+    return {
+        "gpu": torch.cuda.get_device_name(0),
+        "device": os.environ.get("CUDA_VISIBLE_DEVICES", "unpinned"),
+        "torch": torch.__version__,
+        "date": datetime.date.today().isoformat(),
+    }

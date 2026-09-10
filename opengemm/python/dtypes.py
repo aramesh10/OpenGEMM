@@ -1,330 +1,133 @@
-"""Element types and block-scaled formats: how each arrives from torch, and
-how the harness packs, quantizes and dequantizes it.
+"""The formats gemm() serves, as torch sees them.
 
-Dense types ride the `mm` kernel and are named by the tcgen05 element: bf16,
-f16, tf32, s8, u8, e4m3, e5m2, e3m2, e2m3, e2m1, and the mixed e4m3xe5m2.
-Block-scaled formats ride `smm`: nvfp4, mxfp8, mxfp4.
+Everything about the kernel side, the element names, the tile alignment, the
+scale blocks, lives in the C registry; Python reads element names out of
+registry.cuh only to name a format from names.
 """
+
+import re
+from pathlib import Path
+from typing import NamedTuple
+
 import torch
+from torch import (
+    bfloat16,
+    float16,
+    float32,
+    float4_e2m1fn_x2,
+    float8_e4m3fn,
+    float8_e5m2,
+    float8_e8m0fnu,
+    int8,
+    int32,
+    uint8,
+)
 
-# Elem enum order of src/mm/types.cuh; the index is what the extension
-# takes.
-ELEMS = ("bf16", "f16", "tf32", "s8", "u8", "e4m3", "e5m2", "e3m2", "e2m3",
-         "e2m1")
-ELEM_INDEX = {name: i for i, name in enumerate(ELEMS)}
+SRC = Path(__file__).resolve().parents[1] / "src"
 
-# fp6 and fp4 have no torch dtype and arrive packed in uint8, which also
-# carries u8, so those four are named by the caller rather than inferred.
+class Dtype(NamedTuple):
+    impl: str  # "mm" dense, "smm" block-scaled
+    a: torch.dtype  # of a
+    b: torch.dtype  # of b
+    bits: int  # per value; under 8 means packed along K
+    out: torch.dtype  # of c
+    sf: torch.dtype  # of the scales; None for dense
+
+# fmt: off
+DTYPES = {
+    #                  impl   a                 b                 bits out       sf
+    "bf16":      Dtype("mm",  bfloat16,         bfloat16,         16,  float32,  None),
+    "f16":       Dtype("mm",  float16,          float16,          16,  float32,  None),
+    "tf32":      Dtype("mm",  float32,          float32,          32,  float32,  None),
+    "s8":        Dtype("mm",  int8,             int8,             8,   int32,    None),
+    "u8":        Dtype("mm",  uint8,            uint8,            8,   int32,    None),
+    "e4m3":      Dtype("mm",  float8_e4m3fn,    float8_e4m3fn,    8,   float32,  None),
+    "e5m2":      Dtype("mm",  float8_e5m2,      float8_e5m2,      8,   float32,  None),
+    "e3m2":      Dtype("mm",  uint8,            uint8,            6,   float32,  None),
+    "e2m3":      Dtype("mm",  uint8,            uint8,            6,   float32,  None),
+    "e2m1":      Dtype("mm",  uint8,            uint8,            4,   float32,  None),
+    "e4m3xe5m2": Dtype("mm",  float8_e4m3fn,    float8_e5m2,      8,   float32,  None),
+    "nvfp4":     Dtype("smm", float4_e2m1fn_x2, float4_e2m1fn_x2, 4,   bfloat16, float8_e4m3fn),
+    "mxfp8":     Dtype("smm", float8_e4m3fn,    float8_e4m3fn,    8,   bfloat16, float8_e8m0fnu),
+    "mxfp4":     Dtype("smm", float4_e2m1fn_x2, float4_e2m1fn_x2, 4,   bfloat16, float8_e8m0fnu),
+}
+# fmt: on
+
 DENSE_OF_TORCH = {
-    torch.bfloat16: "bf16", torch.float16: "f16", torch.float32: "tf32",
-    torch.int8: "s8", torch.float8_e4m3fn: "e4m3", torch.float8_e5m2: "e5m2",
+    d.a: name for name, d in DTYPES.items() if d.impl == "mm" and d.a is d.b and d.a is not uint8
 }
-SCALED_OF_TORCH = {
-    (torch.float4_e2m1fn_x2, torch.float8_e4m3fn): "nvfp4",
-    (torch.float8_e4m3fn, torch.float8_e8m0fnu): "mxfp8",
-    (torch.float4_e2m1fn_x2, torch.float8_e8m0fnu): "mxfp4",
-}
+SCALED_OF_TORCH = {(d.a, d.sf): name for name, d in DTYPES.items() if d.impl == "smm"}
 
-TOLERANCE_PIVOT_K = 4096
+_ELEMS = {}
 
+def elems(name):
+    """The element names of a format as registry.cuh spells them.
 
-def _scaled_tolerance(rtol, atol, k):
-    if rtol == 0.0 and atol == 0.0:
-        return 0.0, 0.0
-    # Accumulation error grows with the reduction length; widen the tolerance
-    # past the pivot.
-    scale = max(1.0, (k / TOLERANCE_PIVOT_K) ** 0.5)
-    return rtol * scale, atol * scale
-
-
-class Dense:
-    """A dense element type: its torch dtype, width, tolerance, packing and
-    torch baseline.
+    `(a, b)` for a dense format, `(elem, sf)` for a block-scaled one.
     """
-    impl = "mm"
+    if not _ELEMS:
+        for impl in ("mm", "smm"):
+            text = (SRC / impl / "registry.cuh").read_text()
+            for found in re.finditer(r"X\((\w+), (\w+), (\w+)\)", text):
+                _ELEMS[found.group(1)] = (found.group(2), found.group(3))
+    return _ELEMS[name]
 
-    def __init__(self, name, torch_dtype, bits, out_dtype=torch.float32,
-                 rtol=1.0e-3, atol=2.0e-2, elem_a=None, elem_b=None,
-                 torch_dtype_b=None, int_range=(-127, 128), packer=None,
-                 unpacker=None, quantize=None, baseline=None,
-                 baseline_unavailable=None):
-        self.name = name
-        self.torch_dtype = torch_dtype
-        self.torch_dtype_b = torch_dtype_b or torch_dtype
-        self.bits = bits
-        self.out_dtype = out_dtype
-        self.rtol, self.atol = rtol, atol
-        self.elem_a = elem_a or name
-        self.elem_b = elem_b or self.elem_a
-        self.int_range = int_range
-        self.packer, self.unpacker, self.quantize = packer, unpacker, quantize
-        self.baseline = baseline
-        self.baseline_unavailable = baseline_unavailable
+def _dense(t, which):
+    name = DENSE_OF_TORCH.get(t.dtype)
+    if name is None:
+        raise TypeError(
+            f"{which} is {t.dtype}, which names no element: pass {which}type= "
+            f"(uint8 carries u8, e3m2, e2m3 and e2m1 alike; the rest are inferred)"
+        )
+    return name
 
-    def tolerance(self, k):
-        """Return `(rtol, atol)` for a reduction of length `k`."""
-        return _scaled_tolerance(self.rtol, self.atol, k)
-
-    def k_extent(self, k):
-        """Return the row extent of a `(rows, K)` operand as torch sees it."""
-        return k * self.bits // 8 if self.bits < 8 else k
-
-    def k_values(self, extent):
-        """Return K for a row extent as torch sees it; the inverse of
-        `k_extent`.
-        """
-        return extent * 8 // self.bits if self.bits < 8 else extent
-
-
-class Scaled:
-    """A block-scaled format: its element and scale dtypes, block size and
-    quantizer.
-    """
-    impl = "smm"
-    rtol, atol = 2.0 ** -6, 2.0 ** -5
-
-    def __init__(self, name, elem, sf, block, amax, packer, unpacker,
-                 sf_dtype, sf_ceiling=False, baseline=True,
-                 baseline_unavailable=None):
-        self.name = name
-        self.elem, self.sf = elem, sf
-        self.block, self.amax = block, amax
-        self.packer, self.unpacker = packer, unpacker
-        self.sf_dtype = sf_dtype
-        self.sf_ceiling = sf_ceiling
-        self.baseline = baseline
-        self.baseline_unavailable = baseline_unavailable
-        self.per_byte = 2 if elem == "e2m1" else 1
-        self.elem_dtype = (torch.float4_e2m1fn_x2 if elem == "e2m1"
-                           else torch.float8_e4m3fn)
-        self.out_dtype = torch.bfloat16
-
-    def tolerance(self, k):
-        """Return `(rtol, atol)` for a reduction of length `k`."""
-        return _scaled_tolerance(self.rtol, self.atol, k)
-
-    def k_extent(self, k):
-        """Return the row extent of a `(rows, K)` operand as torch sees it."""
-        return k // self.per_byte
-
-    def k_values(self, extent):
-        """Return K for a row extent as torch sees it; the inverse of
-        `k_extent`.
-        """
-        return extent * self.per_byte
-
-
-
-def _float_table(exp_bits, mant_bits):
-    bias = (1 << (exp_bits - 1)) - 1
-    scale = float(1 << mant_bits)
-    values = []
-    for code in range(1 << (1 + exp_bits + mant_bits)):
-        sign = -1.0 if code >> (exp_bits + mant_bits) else 1.0
-        exponent = (code >> mant_bits) & ((1 << exp_bits) - 1)
-        mantissa = code & ((1 << mant_bits) - 1)
-        values.append(sign * (mantissa / scale * 2.0 ** (1 - bias)
-                              if exponent == 0
-                              else (1.0 + mantissa / scale)
-                              * 2.0 ** (exponent - bias)))
-    return values
-
-
-def _pack_bits(codes, bits):
-    per_word = {6: 4, 4: 2}[bits]
-    out_bytes = per_word * bits // 8
-    rows, k = codes.shape
-    q = codes.reshape(rows, k // per_word, per_word).to(torch.int32)
-    word = q[..., 0]
-    for i in range(1, per_word):
-        word = word | (q[..., i] << (bits * i))
-    packed = torch.stack([(word >> (8 * b)) & 0xFF for b in range(out_bytes)],
-                         dim=-1)
-    return packed.reshape(rows, k // per_word * out_bytes).to(
-        torch.uint8).contiguous()
-
-
-def _unpack_bits(packed, k, bits):
-    per_word = {6: 4, 4: 2}[bits]
-    out_bytes = per_word * bits // 8
-    rows = packed.shape[0]
-    b = packed.reshape(rows, k // per_word, out_bytes).to(torch.int32)
-    word = b[..., 0]
-    for i in range(1, out_bytes):
-        word = word | (b[..., i] << (8 * i))
-    mask = (1 << bits) - 1
-    return torch.stack([(word >> (bits * i)) & mask for i in range(per_word)],
-                       dim=-1).reshape(rows, k)
-
-
-def _small_float(name, exp_bits, mant_bits, bits):
-    table = {}
-
-    def values(device):
-        if device not in table:
-            table[device] = torch.tensor(_float_table(exp_bits, mant_bits),
-                                         device=device)
-        return table[device]
-
-    def pack(x):
-        v, x = values(x.device), x.float()
-        code = torch.zeros(x.shape, dtype=torch.uint8, device=x.device)
-        best = (x - v[0]).abs()
-        for c in range(1, v.numel()):
-            d = (x - v[c]).abs()
-            closer = d < best
-            best = torch.where(closer, d, best)
-            code[closer] = c
-        return _pack_bits(code, bits)
-
-    def unpack(packed, k):
-        return values(packed.device)[_unpack_bits(packed, k, bits).long()]
-
-    return Dense(name, torch.uint8, bits, packer=pack, unpacker=unpack,
-                 baseline_unavailable=("torch has no float6 dtype" if bits == 6
-                                       else "cuBLAS exposes no dense fp4 GEMM"))
-
-
-def _round_tf32(x):
-    bits = x.view(torch.int32)
-    # Round to the 10-bit mantissa tensor cores read, so the reference sees the
-    # operands the kernel does.
-    return ((bits + 0x1000) & ~0x1FFF).view(torch.float32)
-
-
-
-E2M1_VALUES = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
-               0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0)
-
-
-def pack_e2m1(x):
-    """Pack values to e2m1 codes, two per byte.
+def dtype_name(a=None, b=None, sfa=None, atype=None, btype=None, sftype=None):
+    """The DTYPES key for these operands, or for these element names.
 
     Args:
-        x: Values with an even last dimension.
+        a: `(M, K)` operand, or None to name the format from `atype` alone.
+        b: `(N, K)` operand.
+        sfa: Scales of `a`, for a block-scaled call.
+        atype: Element of `a`: "bf16", "e4m3", "e2m1" and the rest of the
+            dense names. Required for a uint8 operand.
+        btype: Element of `b`; defaults to `atype` when the dtypes match.
+        sftype: Scale element, "ue4m3" or "ue8m0", for a block-scaled format
+            named without operands.
 
-    Returns:
-        `uint8` tensor with the last dimension halved, low nibble first.
+    Raises:
+        TypeError: If the operands or the names pick out no format.
     """
-    values = torch.tensor(E2M1_VALUES[:8], device=x.device)
-    magnitude = x.float().abs().unsqueeze(-1)
-    distance = (magnitude - values).abs()
-    code = distance.argmin(dim=-1)
-    upper = (code + 1).clamp(max=len(values) - 1)
-    tied = (distance.gather(-1, upper.unsqueeze(-1)).squeeze(-1)
-            == distance.gather(-1, code.unsqueeze(-1)).squeeze(-1)) \
-        & (upper != code)
-    # Ties round to the even code, as the hardware conversion does.
-    code = torch.where(tied & (code % 2 == 1), upper, code).to(torch.uint8)
-    code |= (torch.signbit(x.float()) << 3).to(torch.uint8)
-    low, high = code[..., 0::2], code[..., 1::2]
-    return (low | (high << 4)).contiguous()
+    if sfa is not None:
+        name = SCALED_OF_TORCH.get((a.dtype, sfa.dtype))
+        if name is None:
+            raise TypeError(
+                f"{a.dtype} operands with {sfa.dtype} scales is not a format; "
+                f"have {SCALED_OF_TORCH}"
+            )
+        return name
+    if sftype is not None:
+        for name, d in DTYPES.items():
+            if d.impl == "smm" and elems(name) == (atype, sftype):
+                return name
+        raise TypeError(f"atype={atype!r} with sftype={sftype!r} is not a format")
+    if a is not None:
+        atype = atype or _dense(a, "a")
+        btype = btype or (atype if b.dtype == a.dtype else _dense(b, "b"))
+    if atype is None:
+        raise TypeError("without operands, pass atype= (and sftype= for a block-scaled format)")
+    name = atype if btype in (None, atype) else f"{atype}x{btype}"
+    if name not in DTYPES:
+        raise TypeError(f"{name} is not a format this build serves; have {list(DTYPES)}")
+    return name
 
+def extent(d, k):
+    """The row extent of a `(rows, K)` operand as torch sees it."""
+    return k * d.bits // 8 if d.bits < 8 else k
 
-def unpack_e2m1(packed, k):
-    """Unpack e2m1 codes to float32 values.
+def k_of(d, extent):
+    """K in values for a row extent as torch sees it; the inverse of `extent`."""
+    return extent * 8 // d.bits if d.bits < 8 else extent
 
-    Args:
-        packed: Output of `pack_e2m1`, any leading shape.
-        k: Values per row.
-
-    Returns:
-        `(rows, k)` float32 tensor.
-    """
-    values = torch.tensor(E2M1_VALUES, device=packed.device)
-    data = packed.reshape(-1, k // 2)
-    out = torch.empty((data.shape[0], k), device=packed.device)
-    out[:, 0::2] = values[(data & 15).long()]
-    out[:, 1::2] = values[(data >> 4).long()]
-    return out
-
-
-def _torch_packer(dtype):
-    return lambda x: x.float().to(dtype).view(torch.uint8).contiguous()
-
-
-def _torch_unpacker(dtype):
-    return lambda packed, k: packed.reshape(-1, k).view(dtype).float()
-
-
-def to_blocked(scales):
-    """Rearrange scales into the 128x4 blocked layout cuBLAS and
-    torch._scaled_mm consume.
-
-    Args:
-        scales: `(rows, K / block)` scale factors.
-
-    Returns:
-        Flat tensor of the same dtype, rows padded to 128 and columns to 4.
-    """
-    rows, cols = scales.shape
-    row_blocks = -(-rows // 128)
-    col_blocks = -(-cols // 4)
-    padded = torch.zeros((row_blocks * 128, col_blocks * 4),
-                         dtype=scales.dtype, device=scales.device)
-    padded[:rows, :cols] = scales
-    atoms = padded.view(row_blocks, 128, col_blocks, 4).permute(0, 2, 1, 3)
-    return atoms.reshape(-1, 4, 32, 4).transpose(1, 2).reshape(-1).contiguous()
-
-
-def quantize(x, dtype):
-    """Quantize rows to a block-scaled format.
-
-    Args:
-        x: `(rows, K)` values, K a multiple of the format's block.
-        dtype: A `Scaled` entry of `DTYPES`.
-
-    Returns:
-        `(packed, scales)`: the packed operand and `(rows, K / block)` scales
-        in
-        the format's scale dtype.
-    """
-    rows, k = x.shape
-    blocks = x.float().reshape(rows, k // dtype.block, dtype.block)
-    amax = blocks.abs().amax(dim=-1, keepdim=True)
-    scale = (amax / dtype.amax).clamp(min=1e-30)
-    # e8m0 scales are powers of two; round up so no block overflows.
-    if dtype.sf_ceiling:
-        scale = torch.pow(2.0, torch.ceil(torch.log2(scale)))
-    stored = scale.squeeze(-1).to(dtype.sf_dtype)
-    effective = stored.float().unsqueeze(-1).clamp(min=1e-30)
-    data = (blocks / effective).reshape(rows, k)
-    return dtype.packer(data.to(torch.bfloat16)), stored
-
-
-
-DENSE = {
-    "bf16": Dense("bf16", torch.bfloat16, 16, baseline="mm"),
-    "f16": Dense("f16", torch.float16, 16, baseline="mm"),
-    "tf32": Dense("tf32", torch.float32, 32, baseline="mm_tf32",
-                  quantize=_round_tf32),
-    "s8": Dense("s8", torch.int8, 8, out_dtype=torch.int32, rtol=0.0, atol=0.0,
-                baseline="int_mm"),
-    "u8": Dense("u8", torch.uint8, 8, out_dtype=torch.int32, rtol=0.0,
-                atol=0.0, int_range=(0, 256),
-                baseline_unavailable="torch._int_mm takes signed operands only"),
-    "e4m3": Dense("e4m3", torch.float8_e4m3fn, 8, baseline="scaled_mm"),
-    "e5m2": Dense("e5m2", torch.float8_e5m2, 8,
-                  baseline_unavailable="torch._scaled_mm refuses e5m2 x e5m2"),
-    "e3m2": _small_float("e3m2", 3, 2, 6),
-    "e2m3": _small_float("e2m3", 2, 3, 6),
-    "e2m1": _small_float("e2m1", 2, 1, 4),
-    "e4m3xe5m2": Dense("e4m3xe5m2", torch.float8_e4m3fn, 8, elem_a="e4m3",
-                       elem_b="e5m2", torch_dtype_b=torch.float8_e5m2,
-                       baseline="scaled_mm"),
-}
-
-SCALED = {
-    "nvfp4": Scaled("nvfp4", "e2m1", "ue4m3", 16, 6.0, pack_e2m1, unpack_e2m1,
-                    torch.float8_e4m3fn),
-    "mxfp8": Scaled("mxfp8", "e4m3", "ue8m0", 32, 448.0,
-                    _torch_packer(torch.float8_e4m3fn),
-                    _torch_unpacker(torch.float8_e4m3fn),
-                    torch.float8_e8m0fnu, sf_ceiling=True),
-    "mxfp4": Scaled("mxfp4", "e2m1", "ue8m0", 32, 6.0, pack_e2m1, unpack_e2m1,
-                    torch.float8_e8m0fnu, sf_ceiling=True, baseline=False,
-                    baseline_unavailable="torch._scaled_mm refuses e2m1 "
-                                         "operands with e8m0 block scales"),
-}
-
-DTYPES = {**DENSE, **SCALED}
+def sf_block(d):
+    """Values per scale of a block-scaled format: 16 for ue4m3 scales, 32 for ue8m0."""
+    return 16 if d.sf is float8_e4m3fn else 32

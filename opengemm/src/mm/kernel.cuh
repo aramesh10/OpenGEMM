@@ -1,8 +1,7 @@
 #pragma once
 
-#include "device_utils.cuh"
-constexpr int MBAR        = sizeof(int64_t);
-constexpr int CLC_DEPTH   = 3;
+#include "common/clc.cuh"
+#include "ptx.cuh"
 
 __device__ __forceinline__ void k_partition(int count, int parts, int idx,
                                             int &begin, int &len) {
@@ -10,13 +9,6 @@ __device__ __forceinline__ void k_partition(int count, int parts, int idx,
     const int rem = count % parts;
     begin = idx * per + (idx < rem ? idx : rem);
     len   = per + (idx < rem);
-}
-
-constexpr int hold_divisor(int count, int want) {
-    int hold = (want < count) ? want : count;
-    while (count % hold)
-        --hold;
-    return hold;
 }
 
 constexpr int ld_width(int cols) {
@@ -32,176 +24,15 @@ __device__ __forceinline__ void tcgen05_ld(T *dst, int row, int col) {
     else                        tcgen05_ld_32x32bx64(words, row, col);
 }
 
+// C is row-major [m, n] in the caller's terms; with swap_ab the kernel's rows
+// are the caller's columns.
 template <bool SWAP_AB, bool ACC_STORE, class T>
 __device__ __forceinline__ void store_c(T *c, int m, int n, int row, int col,
                                         T value) {
-    T *p = c + (SWAP_AB ? static_cast<size_t>(row) * n + col
-                        : static_cast<size_t>(col) * m + row);
+    T *p = c + (SWAP_AB ? static_cast<size_t>(col) * m + row
+                        : static_cast<size_t>(row) * n + col);
     if constexpr (ACC_STORE) atomicAdd(p, value);
     else                     *p = value;
-}
-
-template <Policy P>
-struct Geom {
-    static constexpr Elem mma_elem_a = P.swap_ab ? P.elem_b : P.elem_a;
-    static constexpr Elem mma_elem_b = P.swap_ab ? P.elem_a : P.elem_b;
-    static constexpr Kind kind       = KindOf<mma_elem_a, mma_elem_b>::kind;
-    static constexpr Acc  acc        = KindOf<mma_elem_a, mma_elem_b>::acc;
-    static constexpr int  elem_bits  = KindOf<mma_elem_a, mma_elem_b>::container_bits;
-    static constexpr int  input_bytes = elem_bits / 8;
-    static constexpr int  global_bits_a = ElemTraits<mma_elem_a>::global_bits;
-    static constexpr int  global_bits_b = ElemTraits<mma_elem_b>::global_bits;
-    static constexpr CUtensorMapDataType tmap_a = ElemTraits<mma_elem_a>::tmap;
-    static constexpr CUtensorMapDataType tmap_b = ElemTraits<mma_elem_b>::tmap;
-    using acc_t = typename std::conditional<acc == Acc::s32, int, float>::type;
-    static constexpr CUtensorMapDataType tmap_c =
-        (acc == Acc::s32) ? CU_TENSOR_MAP_DATA_TYPE_INT32
-                          : CU_TENSOR_MAP_DATA_TYPE_FLOAT32;
-
-    static constexpr int  cta_group  = P.cta_group;
-    static constexpr int  block_m    = P.block_m;
-    static constexpr int  mma_n      = P.mma_n;
-    static constexpr bool swap_ab    = P.swap_ab;
-    static constexpr bool epi_direct = P.epi_direct;
-    static constexpr bool use_clc    = P.use_clc;
-    static constexpr bool split_k    = P.split_k;
-    static constexpr int  rm         = P.rm;
-    static constexpr int  rn         = P.rn;
-    static constexpr int  rk         = P.rk;
-
-    static constexpr bool dual_mma  = P.epi_mode == 1;
-    static constexpr int  consumers = dual_mma ? 2 : 1;
-    static constexpr int  mma_m     = cta_group * block_m;
-    static constexpr int  tile_m    = consumers * mma_m;
-    static constexpr int  block_n   = mma_n / cta_group;
-    static constexpr int  block_k   = block_k_for(elem_bits);
-    static constexpr int  mma_k     = mma_k_for(elem_bits);
-    static constexpr int  k_iters   = block_k / mma_k;
-    static_assert(k_iters == 4, "one stage is 1024 bits of K and one MMA is "
-                                "256, for every element width");
-
-    static constexpr int a_bytes     = block_m * block_k * input_bytes;
-    static constexpr int b_bytes     = block_n * block_k * input_bytes;
-    static constexpr int stage_bytes = consumers * a_bytes + b_bytes;
-    static constexpr int a_tx_bytes  = block_m * block_k * global_bits_a / 8;
-    static constexpr int b_tx_bytes  = block_n * block_k * global_bits_b / 8;
-    static constexpr int stage_tx    =
-        cta_group * (consumers * a_tx_bytes + b_tx_bytes);
-    static constexpr int stages_want =
-        (P.stages > 0) ? P.stages : ((cta_group == 1) ? 3 : 6);
-
-    static constexpr int epi_warps   = 4;
-    static constexpr int epi_threads = epi_warps * WARP_SIZE;
-    static constexpr int epi_tile_n  =
-        (block_m == 64) ? (mma_n / 2) : ((cta_group == 1) ? 128 : 64);
-    static constexpr int epi_iters   = (mma_n + epi_tile_n - 1) / epi_tile_n;
-    static constexpr int last_epi_n  = mma_n - (epi_iters - 1) * epi_tile_n;
-    static constexpr int hold        = hold_divisor(epi_iters, P.epi_hold);
-
-    static constexpr bool acc_store     = split_k || (rk > 1);
-    static constexpr bool always_direct = epi_direct || acc_store;
-    static constexpr int  epi_bufs      = dual_mma ? 2 : 1;
-    static constexpr int  epi_buf_bytes =
-        (block_m == 64 || always_direct)
-            ? 0
-            : epi_tile_n * block_m * static_cast<int>(sizeof(float));
-    static constexpr int  c_tma_n =
-        (mma_n < epi_tile_n) ? mma_n : epi_tile_n;
-
-    static constexpr int  stages_with_epi =
-        fit_stages(stages_want, stage_bytes, epi_bufs * epi_buf_bytes);
-    static constexpr int  stages_sans_epi =
-        fit_stages(stages_want, stage_bytes, 0);
-    static constexpr bool drop_epi_buf = stages_sans_epi > stages_with_epi;
-    static constexpr int  num_stages   =
-        drop_epi_buf ? stages_sans_epi : stages_with_epi;
-
-    static constexpr int  smem_bytes =
-        num_stages * stage_bytes
-        + (drop_epi_buf ? 0 : epi_bufs * epi_buf_bytes)
-        + 64;
-
-    static constexpr int acc_cols  = (block_m == 64)
-        ? ((cta_group == 2) ? 64 : 128)
-        : ((mma_n + 127) / 128) * 128;
-    static constexpr int tmem_cols = 2 * acc_cols;
-
-    static constexpr int mma_warp = 4 * consumers;
-    static constexpr int tma_warp = mma_warp + (dual_mma ? 3 : 1);
-    static constexpr int threads  = (dual_mma ? 12 : 6) * WARP_SIZE;
-
-    static constexpr int cluster_m    = cta_group * rm;
-    static constexpr int cluster_ctas = cluster_m * rn * rk;
-
-    static constexpr uint32_t instr_desc =
-        (static_cast<uint32_t>(acc_format(acc)) << 4)
-                  | (static_cast<uint32_t>(ElemTraits<mma_elem_a>::format) << 7)
-                  | (static_cast<uint32_t>(ElemTraits<mma_elem_b>::format) << 10)
-                  | (static_cast<uint32_t>(mma_n) >> 3 << 17)
-                  | (static_cast<uint32_t>(mma_m) >> 4 << 24);
-
-    static_assert(block_m == 128 || block_m == 64);
-    static_assert(P.epi_mode == 0 || P.epi_mode == 1);
-    static_assert(block_m == 128 || P.epi_mode == 0,
-                  "the 64-row block runs the single-consumer epilogue only");
-    static_assert(block_m == 128 || !use_clc,
-                  "the 64-row epilogue advances by a fixed stride and cannot "
-                  "follow a cluster launch control schedule");
-    static_assert(!split_k || block_m == 128);
-    static_assert(!epi_direct || block_m == 128);
-    static_assert(cta_group != 2 ||
-                  (mma_n >= 16 && mma_n <= 256 && mma_n % 16 == 0));
-    static_assert(block_m != 64 ||
-                  (cta_group == 2
-                       ? (mma_n >= 16 && mma_n <= 128 && mma_n % 16 == 0)
-                       : (mma_n >= 8 && mma_n <= 128 && mma_n % 8 == 0)));
-    static_assert(!dual_mma ||
-                      !(use_clc || split_k || rm > 1 || rn > 1 || swap_ab),
-                  "two MMA issuers share the TMEM ping-pong regions with "
-                  "split-K and run the plain persistent schedule only");
-    static_assert(cta_group == 2 || (rm == 1 && rn == 1),
-                  "a widened cluster needs the 2-CTA MMA's multicast commit");
-    static_assert(rm == 1 ||
-                  (cta_group == 2 && !dual_mma && !split_k && !use_clc));
-    static_assert(rk == 1 || (!split_k && !use_clc && !dual_mma));
-    static_assert(cluster_ctas <= 16);
-};
-
-struct Clc {
-    int arrived;
-    int finished;
-    int ready;
-    uint4 *handles;
-};
-
-template <int CTA_GROUP>
-__device__ __forceinline__ void clc_issue(const Clc &clc, int tile_idx,
-                                          bool is_leader) {
-    const int slot  = tile_idx % CLC_DEPTH;
-    const int phase = (tile_idx / CLC_DEPTH) & 1;
-    mbar_arrive_tx(clc.arrived + slot * MBAR, sizeof(uint4));
-    if (!is_leader) {
-        mbar_arrive_cluster_to(clc.ready + slot * MBAR, 0);
-        return;
-    }
-    if (tile_idx >= CLC_DEPTH)
-        mbar_wait_cluster(clc.finished + slot * MBAR, phase ^ 1);
-    if constexpr (CTA_GROUP == 2)
-        mbar_wait_cluster(clc.ready + slot * MBAR, phase);
-    clc_schedule(&clc.handles[slot], clc.arrived + slot * MBAR);
-}
-
-template <int CTA_GROUP, bool USE_CLC>
-__device__ __forceinline__ int next_tile(const Clc &clc, int tile_id,
-                                         int tile_idx, int num_clusters) {
-    if constexpr (!USE_CLC)
-        return tile_id + num_clusters;
-    const int slot  = tile_idx % CLC_DEPTH;
-    const int phase = (tile_idx / CLC_DEPTH) & 1;
-    mbar_wait_cluster(clc.arrived + slot * MBAR, phase);
-    const uint4 next = clc_query(&clc.handles[slot]);
-    mbar_arrive_cluster_to(clc.finished + slot * MBAR, 0);
-    return next.x ? static_cast<int>(next.y) / CTA_GROUP : -1;
 }
 
 template <Policy P>
@@ -237,6 +68,8 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     constexpr int  EPI_ITERS     = G::epi_iters;
     constexpr int  LAST_EPI_N    = G::last_epi_n;
     constexpr int  EPI_BUF_BYTES = G::epi_buf_bytes;
+    constexpr int  STORE_N       = G::store_n;
+    constexpr bool VEC_STAGE     = G::vec_stage;
     constexpr int  HOLD          = G::hold;
     constexpr bool ALWAYS_DIRECT = G::always_direct;
     constexpr bool DROP_EPI_BUF  = G::drop_epi_buf;
@@ -565,6 +398,7 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
         const bool epi_leader   = (local_warp == 0) && elect_sync();
         const int  epi_buf      = smem + NUM_STAGES * STAGE_BYTES
                                        + consumer * EPI_BUF_BYTES;
+        const bool c_aligned_32 = (reinterpret_cast<uintptr_t>(c) & 31) == 0;
 
         int  tile_id     = cluster_idx;
         int  tile_idx    = 0;
@@ -575,11 +409,10 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
             tile_origin(tile_id, off_m, off_n);
             off_m += (DUAL_MMA ? consumer * MMA_M : 0) + cta_in_group * BLOCK_M;
 
+            // TMA clips a box past the edges of C, but needs its row pitch
+            // to be 16 bytes, which n % 4 == 0 gives.
             const bool direct_store =
-                ALWAYS_DIRECT || DROP_EPI_BUF ||
-                (SWAP_AB ? (n % 8 != 0)
-                         : (m % 8 != 0) || (off_m + BLOCK_M > m)
-                                        || (off_n + MMA_N > n));
+                ALWAYS_DIRECT || DROP_EPI_BUF || ((SWAP_AB ? m : n) % 4 != 0);
 
             const int acc_slot = DUAL_MMA ? consumer : (tile_idx & 1);
             const int phase    = DUAL_MMA ? (tile_idx & 1)
@@ -589,6 +422,11 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
 
             constexpr int ACC_N = (EPI_TILE_N < 64) ? 64 : EPI_TILE_N;
             ACC acc[HOLD][ACC_N];
+
+            // The width of every fragment the TMA path stores; a shorter
+            // tail goes direct.
+            constexpr int FRAG_N = (EPI_ITERS == 1) ? LAST_EPI_N : EPI_TILE_N;
+            constexpr int BOX_BYTES = BLOCK_M * STORE_N * FLOAT_BYTES;
 
             #pragma unroll
             for (int frag = 0; frag < EPI_ITERS; ++frag) {
@@ -630,12 +468,28 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
                     bar_sync(epi_bar, EPI_THREADS);
                 }
 
+                const int base_n = off_n + frag * EPI_TILE_N;
+
                 if (direct) {
                     const int global_m = off_m + row_in_block;
-                    if (global_m < m) {
+                    // A lane holds one row of C, so a fragment inside C goes
+                    // out a sector at a time; with swap_ab the lanes' rows
+                    // are columns of C and the words are consecutive as is.
+                    const bool inside = !SWAP_AB && !ACC_STORE && global_m < m
+                                     && base_n + cols <= n;
+                    ACC *row = c + static_cast<size_t>(global_m) * n + base_n;
+                    if (inside && n % 8 == 0 && c_aligned_32) {
+                        #pragma unroll
+                        for (int i = 0; i < EPI_TILE_N; i += 8)
+                            if (i < cols) st_global_v8b(row + i, &acc[held][i]);
+                    } else if (inside && n % 4 == 0) {
+                        #pragma unroll
+                        for (int i = 0; i < EPI_TILE_N; i += 4)
+                            if (i < cols) st_global_v4b(row + i, &acc[held][i]);
+                    } else if (global_m < m) {
                         #pragma unroll
                         for (int i = 0; i < EPI_TILE_N; ++i) {
-                            const int global_n = off_n + frag * EPI_TILE_N + i;
+                            const int global_n = base_n + i;
                             if (i < cols && global_n < n)
                                 store_c<SWAP_AB, ACC_STORE>(
                                     c, m, n, global_m, global_n, acc[held][i]);
@@ -646,42 +500,56 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
                 }
 
                 if constexpr (SWAP_AB) {
-                    constexpr int FRAG_N = (EPI_ITERS == 1) ? LAST_EPI_N
-                                                            : EPI_TILE_N;
-                    constexpr int STEP   = (FRAG_N % 4 == 0) ? 4 : 1;
-                    const int row = epi_buf + row_in_block * cols * FLOAT_BYTES;
+                    // Transposed: smem row i is the caller's row base_n + i,
+                    // so consecutive lanes write consecutive words.
                     #pragma unroll
-                    for (int i = 0; i < FRAG_N; i += STEP) {
-                        if (STEP == 4 && i + 3 < cols) {
-                            st_shared_v4b(row + i * FLOAT_BYTES,
-                                         acc[held][i],     acc[held][i + 1],
-                                         acc[held][i + 2], acc[held][i + 3]);
-                        } else {
-                            #pragma unroll
-                            for (int j = 0; j < STEP; ++j)
-                                if (i + j < cols)
-                                    st_shared_b32(row + (i + j) * FLOAT_BYTES,
-                                                  acc[held][i + j]);
-                        }
-                    }
-                } else {
-                    #pragma unroll
-                    for (int i = 0; i < EPI_TILE_N; ++i)
+                    for (int i = 0; i < FRAG_N; ++i)
                         st_shared_b32(epi_buf + (i * BLOCK_M + row_in_block)
                                                     * FLOAT_BYTES,
                                       acc[held][i]);
+                } else if constexpr (VEC_STAGE) {
+                    // One 128-byte swizzled box per store_n columns.
+                    const int row = epi_buf + row_in_block * STORE_N * FLOAT_BYTES;
+                    #pragma unroll
+                    for (int h = 0; h < FRAG_N / STORE_N; ++h) {
+                        #pragma unroll
+                        for (int chunk = 0; chunk < STORE_N / 4; ++chunk) {
+                            const int i = h * STORE_N + chunk * 4;
+                            st_shared_v4b(row + h * BOX_BYTES
+                                              + ((chunk ^ (row_in_block & 7)) * 16),
+                                          acc[held][i],     acc[held][i + 1],
+                                          acc[held][i + 2], acc[held][i + 3]);
+                        }
+                    }
+                } else {
+                    const int row = epi_buf + row_in_block * FRAG_N * FLOAT_BYTES;
+                    if constexpr (FRAG_N % 4 == 0) {
+                        #pragma unroll
+                        for (int i = 0; i < FRAG_N; i += 4)
+                            st_shared_v4b(row + i * FLOAT_BYTES,
+                                          acc[held][i],     acc[held][i + 1],
+                                          acc[held][i + 2], acc[held][i + 3]);
+                    } else {
+                        #pragma unroll
+                        for (int i = 0; i < FRAG_N; ++i)
+                            st_shared_b32(row + i * FLOAT_BYTES, acc[held][i]);
+                    }
                 }
 
                 tma_store_fence();
                 bar_sync(epi_bar, EPI_THREADS);
 
                 if (epi_leader) {
-                    if constexpr (SWAP_AB)
-                        tma_store_2d(epi_buf, &c_tmap,
-                                     off_n + frag * EPI_TILE_N, off_m);
-                    else
-                        tma_store_2d(epi_buf, &c_tmap, off_m,
-                                     off_n + frag * EPI_TILE_N);
+                    if constexpr (SWAP_AB) {
+                        tma_store_2d(epi_buf, &c_tmap, off_m, base_n);
+                    } else if constexpr (VEC_STAGE) {
+                        #pragma unroll
+                        for (int h = 0; h < FRAG_N / STORE_N; ++h)
+                            tma_store_2d(epi_buf + h * BOX_BYTES, &c_tmap,
+                                         base_n + h * STORE_N, off_m);
+                    } else {
+                        tma_store_2d(epi_buf, &c_tmap, base_n, off_m);
+                    }
                     tma_store_commit();
                 }
             }
