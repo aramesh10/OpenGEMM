@@ -20,11 +20,11 @@ inline CUresult init_ab_tmap(CUtensorMap *tmap, void *ptr, uint64_t rows,
                  pitch * element_bits / 8, CU_TENSOR_MAP_SWIZZLE_128B, l2);
 }
 
-inline void
+inline CUresult
 init_c_tmap(CUtensorMap *tmap, void *ptr, uint64_t rows, uint64_t cols,
             uint32_t tile_rows, uint32_t tile_cols,
             CUtensorMapDataType dtype = CU_TENSOR_MAP_DATA_TYPE_FLOAT32,
             CUtensorMapSwizzle swizzle = CU_TENSOR_MAP_SWIZZLE_NONE) {
-  tmap_2d(tmap, dtype, ptr, rows, cols, tile_rows, tile_cols,
+  return tmap_2d(tmap, dtype, ptr, rows, cols, tile_rows, tile_cols,
           cols * OUTPUT_BYTES, swizzle);
 }

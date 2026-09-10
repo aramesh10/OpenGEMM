@@ -69,14 +69,13 @@ print(src, hdr)
 "
 atype / btype: bf16 f16 tf32 s8 u8 e4m3 e5m2 e3m2 e2m3 e2m1
 sftype (block-scaled): ue4m3 (nvfp4) or ue8m0 (mxfp8, mxfp4)
-dtype (output): f32, s32 for s8/u8, bf16 when scaled — inferred, optional.
 ```
 
 ## Dense and block-scaled
 
 `C[M, N] = A[M, K] @ B[N, K].T`. Both operands are row-major with K innermost.
 
-| GEMM | `atype` / `btype` | `sftype` | `dtype` | `torch.dtype` (in → out) |
+| GEMM | `atype` / `btype` | `sftype` | output | `torch.dtype` (in → out) |
 | --- | --- | --- | --- | --- |
 | bfloat16 | bf16 | — | f32 | `bfloat16` → `float32` |
 | float16 | f16 | — | f32 | `float16` → `float32` |
@@ -96,8 +95,7 @@ dtype (output): f32, s32 for s8/u8, bf16 when scaled — inferred, optional.
 Note: fp6 and fp4 have no torch dtype. They arrive densely packed in `uint8` and are named - `gemm(a, b, atype="e2m1")` 
 Use `btype=` when the two operands differ.
 
-Input is `[M, K]` and `[N, K]` with column-major strides `(1, M)` and `(1, N)`
-Output is `[M, N]` with column-major strides `(1, M)`
+Output is `[M, N]`, row-major, like `torch.mm`.
 
 ## Tuning and performance
 

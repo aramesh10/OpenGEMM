@@ -18,8 +18,7 @@ PAIRS = {"(": ")", "[": "]", "{": "}"}
 
 
 def skip_string(text, i):
-    """Return the index after the string literal whose opening quote is at `i`.
-    """
+    """Return the index after the string literal whose opening quote is at `i`."""
     quote = text[i]
     i += 1
     while i < len(text) and text[i] != quote:
@@ -54,11 +53,14 @@ def skip_ws(text, i):
 
 
 def is_word(text, i, word):
-    return (text.startswith(word, i)
-            and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_."))
-            and not (i + len(word) < len(text)
-                     and (text[i + len(word)].isalnum()
-                          or text[i + len(word)] == "_")))
+    return (
+        text.startswith(word, i)
+        and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_."))
+        and not (
+            i + len(word) < len(text)
+            and (text[i + len(word)].isalnum() or text[i + len(word)] == "_")
+        )
+    )
 
 
 def statement_end(text, i):
@@ -94,19 +96,35 @@ def line_start(text, i):
 
 def line_indent(text, i):
     start = line_start(text, i)
-    return len(text[start:i]) - len(text[start:i].lstrip(" ")) \
-        if text[start:i].strip() == "" else len(text[start:]) - len(text[start:].lstrip(" "))
+    return (
+        len(text[start:i]) - len(text[start:i].lstrip(" "))
+        if text[start:i].strip() == ""
+        else len(text[start:]) - len(text[start:].lstrip(" "))
+    )
 
 
-TOKEN = re.compile(r"""\s*(?:
+TOKEN = re.compile(
+    r"""\s*(?:
     (?P<num>0[xX][0-9a-fA-F]+[uUlL]*|\d+[uUlL]*)
   | (?P<id>[A-Za-z_]\w*(?:::\w+)*)
   | (?P<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')
   | (?P<op>\|\||&&|==|!=|<=|>=|<<|>>|->|[-+*/%&|^~!<>?:(),.\[\]])
-)""", re.X)
+)""",
+    re.X,
+)
 
-BINARY = [("||",), ("&&",), ("|",), ("^",), ("&",), ("==", "!="),
-          ("<", "<=", ">", ">="), ("<<", ">>"), ("+", "-"), ("*", "/", "%")]
+BINARY = [
+    ("||",),
+    ("&&",),
+    ("|",),
+    ("^",),
+    ("&",),
+    ("==", "!="),
+    ("<", "<=", ">", ">="),
+    ("<<", ">>"),
+    ("+", "-"),
+    ("*", "/", "%"),
+]
 COMPARE = {"==", "!=", "<", "<=", ">", ">="}
 
 
@@ -129,7 +147,7 @@ class Parser:
             if not m or m.end() == pos:
                 if text[pos:].strip() == "":
                     break
-                raise SyntaxError(f"bad token at {text[pos:pos + 10]!r}")
+                raise SyntaxError(f"bad token at {text[pos : pos + 10]!r}")
             kind = m.lastgroup
             self.tokens.append((kind, m.group(kind), m.start(kind), m.end()))
             pos = m.end()
@@ -225,14 +243,24 @@ def c_mod(a, b):
     return a - b * c_div(a, b)
 
 
-ARITH = {"+": lambda a, b: a + b, "-": lambda a, b: a - b,
-         "*": lambda a, b: a * b, "/": c_div, "%": c_mod,
-         "&": lambda a, b: a & b, "|": lambda a, b: a | b,
-         "^": lambda a, b: a ^ b, "<<": lambda a, b: a << b,
-         ">>": lambda a, b: a >> b,
-         "==": lambda a, b: a == b, "!=": lambda a, b: a != b,
-         "<": lambda a, b: a < b, "<=": lambda a, b: a <= b,
-         ">": lambda a, b: a > b, ">=": lambda a, b: a >= b}
+ARITH = {
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": c_div,
+    "%": c_mod,
+    "&": lambda a, b: a & b,
+    "|": lambda a, b: a | b,
+    "^": lambda a, b: a ^ b,
+    "<<": lambda a, b: a << b,
+    ">>": lambda a, b: a >> b,
+    "==": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+    "<": lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    ">": lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+}
 
 
 def literal(value):
@@ -245,7 +273,7 @@ def simplify(node, src, known):
     """Fill `node.value` (a known constant, or None) and `node.text` (the
     expression as it should now read).
     """
-    original = src[node.span[0]:node.span[1]]
+    original = src[node.span[0] : node.span[1]]
     node.text = original
     if node.kind == "num":
         digits = node.op.rstrip("uUlL")
@@ -391,8 +419,7 @@ def dedent_to(block_text, indent):
         return ""
     inner = min(len(l) - len(l.lstrip(" ")) for l in lines if l.strip())
     shift = max(inner - indent, 0)
-    out = [l[shift:] if l.startswith(" " * shift) else l.lstrip(" ")
-           for l in lines]
+    out = [l[shift:] if l.startswith(" " * shift) else l.lstrip(" ") for l in lines]
     out[0] = out[0].lstrip(" ")
     return "\n".join(out)
 
@@ -403,9 +430,10 @@ def reindent_statement(stmt, from_indent, to_indent):
     """
     lines = stmt.split("\n")
     shift = max(from_indent - to_indent, 0)
-    return "\n".join([lines[0].lstrip(" ")]
-                     + [l[shift:] if l.startswith(" " * shift) else l.lstrip(" ")
-                        for l in lines[1:]])
+    return "\n".join(
+        [lines[0].lstrip(" ")]
+        + [l[shift:] if l.startswith(" " * shift) else l.lstrip(" ") for l in lines[1:]]
+    )
 
 
 def ends_in_return(stmts):
@@ -434,7 +462,7 @@ def rewrite_if(text, node, known, hoist):
     ended in a return that makes the rest of its block unreachable.
     """
     indent = line_indent(text, node.start)
-    value, cond = simplify_expression(text[node.cond[0]:node.cond[1]], known)
+    value, cond = simplify_expression(text[node.cond[0] : node.cond[1]], known)
     value = truth(value)
     if value is True:
         out = fold_body(text, node.body, known, hoist, indent)
@@ -444,13 +472,13 @@ def rewrite_if(text, node, known, hoist):
             return "", False
         out = fold_body(text, node.else_body, known, hoist, indent)
         return out, hoist and ends_in_return(out)
-    head = text[node.start:node.cond[0]] + cond + ")"
-    head += text[node.cond[1] + 1:node.body[1]]
+    head = text[node.start : node.cond[0]] + cond + ")"
+    head += text[node.cond[1] + 1 : node.body[1]]
     head += fold_body(text, node.body, known, False, indent)
     if node.else_body is not None:
         tail = fold_body(text, node.else_body, known, False, indent)
         if tail:
-            head += text[node.body[2]:node.else_body[1]] + tail
+            head += text[node.body[2] : node.else_body[1]] + tail
     return head, False
 
 
@@ -465,14 +493,13 @@ def fold_region(text, lo, hi, known):
             continue
         if c == "{":
             j = match_bracket(text, i)
-            out.append(text[pos:i + 1])
+            out.append(text[pos : i + 1])
             out.append(fold_region(text, i + 1, j, known))
             pos = i = j
             continue
         if c == "i" and is_word(text, i, "if"):
             before = text[:i].rstrip()
-            statement_level = (not before or before[-1] in ";{}"
-                               or before.endswith("#pragma unroll"))
+            statement_level = not before or before[-1] in ";{}" or before.endswith("#pragma unroll")
             node = parse_if(text, i)
             new, terminates = rewrite_if(text, node, known, statement_level)
             start, end = i, node.end
@@ -521,8 +548,7 @@ def expression_bounds(text, i):
             depth -= 1
         elif depth == 0 and c in ";,?:":
             break
-        elif depth == 0 and c == "=" and text[j - 2] not in "=!<>" \
-                and text[j] != "=":
+        elif depth == 0 and c == "=" and text[j - 2] not in "=!<>" and text[j] != "=":
             break
         j -= 1
     start = skip_ws(text, j)
@@ -577,7 +603,9 @@ def fold_expressions(text, known):
 
 TEMPLATE_FN = re.compile(
     r"^template <([^>]*)>\s*\n((?:(?:__\w+|inline|static|constexpr)\s+)+)"
-    r"([\w:]+(?:\s*[*&])?)\s+(\w+)\s*\(", re.M)
+    r"([\w:]+(?:\s*[*&])?)\s+(\w+)\s*\(",
+    re.M,
+)
 
 
 def function_end(text, open_paren):
@@ -616,7 +644,7 @@ def call_sites(text, name, exclude):
         after = skip_ws(text, close + 1)
         if close < 0 or after >= len(text) or text[after] != "(":
             continue
-        sites.append((m.start(), close + 1, split_args(text[open_angle + 1:close])))
+        sites.append((m.start(), close + 1, split_args(text[open_angle + 1 : close])))
     return sites
 
 
@@ -630,8 +658,7 @@ def monomorphize(text, known):
         for m in TEMPLATE_FN.finditer(text):
             params = [p.split()[-1] for p in split_args(m.group(1))]
             types = [p.split()[0] for p in split_args(m.group(1))]
-            value_params = [p for p, t in zip(params, types)
-                            if t not in ("class", "typename")]
+            value_params = [p for p, t in zip(params, types) if t not in ("class", "typename")]
             if not value_params:
                 continue
             name = m.group(4)
@@ -644,7 +671,7 @@ def monomorphize(text, known):
                 if len(args) < len(value_params):
                     break
                 values = []
-                for arg in args[:len(value_params)]:
+                for arg in args[: len(value_params)]:
                     value, _ = simplify_expression(arg, known)
                     if value is None:
                         break
@@ -659,42 +686,46 @@ def monomorphize(text, known):
                     continue
                 clones = []
                 for values, spellings in bound.items():
-                    suffix = "" if len(bound) == 1 else "_" + "_".join(
-                        re.sub(r"\W", "", literal(v)) for v in values)
+                    suffix = (
+                        ""
+                        if len(bound) == 1
+                        else "_" + "_".join(re.sub(r"\W", "", literal(v)) for v in values)
+                    )
                     clone = body
                     for index, (param, value) in enumerate(zip(value_params, values)):
-                        spelled = next((s[index] for s in spellings
-                                        if re.fullmatch(r"\w+", s[index])),
-                                       literal(value))
+                        spelled = next(
+                            (s[index] for s in spellings if re.fullmatch(r"\w+", s[index])),
+                            literal(value),
+                        )
                         clone = re.sub(rf"\b{param}\b", spelled, clone)
-                    kept = [p for p in split_args(m.group(1))
-                            if p.split()[-1] not in value_params]
+                    kept = [p for p in split_args(m.group(1)) if p.split()[-1] not in value_params]
                     header = f"template <{', '.join(kept)}>\n" if kept else ""
-                    clone = header + clone[clone.index("\n") + 1:]
+                    clone = header + clone[clone.index("\n") + 1 :]
                     if suffix:
-                        clone = re.sub(rf"\b{name}\s*\(", f"{name}{suffix}(",
-                                       clone, count=1)
+                        clone = re.sub(rf"\b{name}\s*\(", f"{name}{suffix}(", clone, count=1)
                     clones.append((values, suffix, clone))
                 rewritten = []
                 pos = 0
                 for site_start, site_end, args in sites:
-                    values = tuple(simplify_expression(a, known)[0]
-                                   for a in args[:len(value_params)])
+                    values = tuple(
+                        simplify_expression(a, known)[0] for a in args[: len(value_params)]
+                    )
                     suffix = next(s for v, s, _ in clones if v == values)
-                    rest = args[len(value_params):]
+                    rest = args[len(value_params) :]
                     rewritten.append(text[pos:site_start])
-                    rewritten.append(f"{name}{suffix}"
-                                     + (f"<{', '.join(rest)}>" if rest else ""))
+                    rewritten.append(f"{name}{suffix}" + (f"<{', '.join(rest)}>" if rest else ""))
                     pos = site_end
                 rewritten.append(text[pos:])
                 text = "".join(rewritten)
-                shift = len(text) - (len(rewritten[-1]) + sum(
-                    len(r) for r in rewritten[:-1]))
+                shift = len(text) - (len(rewritten[-1]) + sum(len(r) for r in rewritten[:-1]))
                 new_start = text.index(body) if body in text else None
                 if new_start is None:
                     raise RuntimeError(f"lost the definition of {name}")
-                text = (text[:new_start] + "\n\n".join(c for _, _, c in clones)
-                        + text[new_start + len(body):])
+                text = (
+                    text[:new_start]
+                    + "\n\n".join(c for _, _, c in clones)
+                    + text[new_start + len(body) :]
+                )
                 changed = True
                 break
     return text
@@ -702,7 +733,9 @@ def monomorphize(text, known):
 
 FN_DEF = re.compile(
     r"^(?:template <[^>]*>\s*\n)?(?:(?:__device__|__host__|__forceinline__|"
-    r"inline|static|constexpr)\s+)+[\w:]+(?:\s*[*&])?\s+(\w+)\s*\(", re.M)
+    r"inline|static|constexpr)\s+)+[\w:]+(?:\s*[*&])?\s+(\w+)\s*\(",
+    re.M,
+)
 
 
 def prune_functions(header, source, keep):
@@ -721,15 +754,14 @@ def prune_functions(header, source, keep):
             end = function_end(header, m.end() - 1)
             while end < len(header) and header[end] == "\n":
                 end += 1
-            header = header[:m.start()] + header[end:]
+            header = header[: m.start()] + header[end:]
             dropped = True
             break
         if not dropped:
             return header
 
 
-CONST_DECL = re.compile(
-    r"^[ \t]*(?:const|constexpr) [\w:]+ (\w+)\s*=([^;]*);[ \t]*\n", re.M)
+CONST_DECL = re.compile(r"^[ \t]*(?:const|constexpr) [\w:]+ (\w+)\s*=([^;]*);[ \t]*\n", re.M)
 
 
 def prune_constants(header, source, keep=()):
@@ -744,7 +776,7 @@ def prune_constants(header, source, keep=()):
             if name in keep or re.search(r"\b\w+\s*\(", init):
                 continue
             if len(re.findall(rf"\b{name}\b", header + source)) == 1:
-                header = header[:m.start()] + header[m.end():]
+                header = header[: m.start()] + header[m.end() :]
                 dropped = True
                 break
         if not dropped:
@@ -755,8 +787,13 @@ def tidy(text):
     """Clean up after folding: a literal or name left in parentheses by a
     folded ternary, and the blank lines a removed branch leaves behind.
     """
-    text = re.sub(r"(?<=[\[(=+\-*/%&|^?:,])(\s*)\((true|false|-?\d+|[A-Za-z_]\w*)\)"
-                  r"(?=\s*(?:[;\]\),+\-*/%&|^?:]|$))", r"\1\2", text, flags=re.M)
+    text = re.sub(
+        r"(?<=[\[(=+\-*/%&|^?:,])(\s*)\((true|false|-?\d+|[A-Za-z_]\w*)\)"
+        r"(?=\s*(?:[;\]\),+\-*/%&|^?:]|$))",
+        r"\1\2",
+        text,
+        flags=re.M,
+    )
     text = re.sub(r"\n[ \t]*\n([ \t]*\n)+", "\n\n", text)
     text = re.sub(r"\{\n[ \t]*\n", "{\n", text)
     text = re.sub(r"\n[ \t]*\n([ \t]*\})", r"\n\1", text)
@@ -769,7 +806,8 @@ def known_constants(header, extra=None):
     """
     known = dict(extra or {})
     for kind, name, value in re.findall(
-            r"^constexpr ([\w:]+) (\w+)\s*=\s*([\w:]+)\s*;", header, re.M):
+        r"^constexpr ([\w:]+) (\w+)\s*=\s*([\w:]+)\s*;", header, re.M
+    ):
         if value in ("true", "false"):
             known[name] = value == "true"
         elif re.fullmatch(r"-?\d+[uUlL]*|0[xX][0-9a-fA-F]+", value):

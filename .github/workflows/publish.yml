@@ -1,8 +1,9 @@
 name: Publish to PyPI
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 jobs:
@@ -10,8 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     container: nvidia/cuda:12.9.1-devel-ubuntu22.04
     steps:
-      - uses: actions/checkout@v4
-      - name: Install the build tools
+      - uses: actions/checkout@v7
+      - name: Install python and the build tools
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
@@ -28,38 +29,56 @@ jobs:
           python3 -m auditwheel repair \
             --plat manylinux_2_35_x86_64 \
             --exclude libcuda.so.1 \
-            --wheel-dir dist-manylinux dist/*.whl
-          rm dist/*.whl
-          mv dist-manylinux/*.whl dist/
-          ls -l dist/
-      - uses: actions/upload-artifact@v4
+            --wheel-dir wheelhouse dist/*.whl
+      - uses: actions/upload-artifact@v7
         with:
           name: wheel
-          path: dist/
+          path: wheelhouse/
 
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - run: pip install build twine
       - run: OPENGEMM_SKIP_KERNELS=1 python -m build --sdist
       - run: python -m twine check dist/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/
 
+  release:
+    needs: [wheel, sdist]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist/
+          merge-multiple: true
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes
+
   publish:
     needs: [wheel, sdist]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist/
           merge-multiple: true

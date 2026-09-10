@@ -3,123 +3,88 @@
 import torch
 
 from . import capi
-from .dtypes import DENSE_OF_TORCH, DTYPES, ELEM_INDEX, SCALED_OF_TORCH
-from .tune import resolve_config
+from .configs import resolve_config
+from .dtypes import DTYPES, dtype_name, extent, k_of, sf_block
 
-_launchers = {}
-
-
-def _dense_elem(t, name, which):
-    if name is not None:
-        if name not in ELEM_INDEX:
-            raise ValueError(f"{which}type={name!r}; have {list(ELEM_INDEX)}")
-        return name
-    elem = DENSE_OF_TORCH.get(t.dtype)
-    if elem is None:
-        raise TypeError(
-            f"{which} is {t.dtype}, which names no element: pass "
-            f"{which}type= (uint8 carries u8, e3m2, e2m3 and e2m1 alike; "
-            f"the rest are inferred)")
-    return elem
+_bound = {}  # (dtype name, m, n, k) -> (Library, OgGemm)
 
 
-def dtype_name(a, b, sfa=None, atype=None, btype=None):
-    """Return the dtype name for these operands, as configs.json spells it.
+def bind(name, m, n, k, device):
+    """Resolve the kernel for a shape and memoize it, tuning first when nothing is stored."""
+    with torch.cuda.device(device):  # a sweep, if one runs, happens on the operands' device
+        config = resolve_config(name, m, n, k)
+    _bound[(name, m, n, k)] = capi.bind(name, m, n, k, config)
+    return _bound[(name, m, n, k)]
 
-    Args:
-        a: Left operand.
-        b: Right operand.
-        sfa: Scales of `a` for a block-scaled call, else None.
-        atype: Element name for a `uint8` operand: `"u8"`, `"e3m2"`, `"e2m3"`
-            or `"e2m1"`.
-        btype: Element name for `b`; defaults to `atype` when the dtypes
-            match.
 
-    Returns:
-        A name such as `"bf16"`, `"e4m3xe5m2"` or `"nvfp4"`.
+def scale_bytes(d, rows, k):
+    """Bytes of a scale tensor in the 128x4 blocked layout."""
+    return (-(-rows // 128) * 128) * (-(-k // (sf_block(d) * 4)) * 4)
 
-    Raises:
-        TypeError: If the dtypes name no element or no block-scaled format.
-    """
-    if sfa is not None:
-        if (a.dtype, sfa.dtype) not in SCALED_OF_TORCH:
+
+def check_operands(d, m, n, k, a, b, sfa, sfb):
+    """Raise unless the operands are what a kernel for this format and shape reads."""
+    cols = extent(d, k)
+    for name, t, rows, dtype in (("a", a, m, d.a), ("b", b, n, d.b)):
+        if not (t.is_cuda and t.dim() == 2 and t.is_contiguous()):
+            raise TypeError(f"{name} must be a contiguous 2-D CUDA tensor")
+        if t.dtype is not dtype or t.shape != (rows, cols):
             raise TypeError(
-                f"{a.dtype} operands with {sfa.dtype} scales is not a "
-                f"format; have { {v: k for k, v in SCALED_OF_TORCH.items()} }")
-        return SCALED_OF_TORCH[(a.dtype, sfa.dtype)]
-    ea = _dense_elem(a, atype, "a")
-    eb = _dense_elem(b, btype or (atype if b.dtype == a.dtype else None), "b")
-    return ea if ea == eb else f"{ea}x{eb}"
+                f"{name} must be {dtype} [{rows}, {cols}], got {t.dtype} {list(t.shape)}"
+            )
+    if b.device != a.device:
+        raise ValueError(f"a is on {a.device} and b on {b.device}")
+    if d.impl == "mm":
+        if sfa is not None or sfb is not None:
+            raise TypeError("a dense format takes no scales")
+        return
+    if sfa is None or sfb is None:
+        raise TypeError("a block-scaled format takes both sfa and sfb")
+    for name, t, rows in (("sfa", sfa, m), ("sfb", sfb, n)):
+        if not (t.is_cuda and t.is_contiguous() and t.dtype is d.sf and t.device == a.device):
+            raise TypeError(
+                f"{name} must be a contiguous {d.sf} tensor on {a.device}, in the 128x4 blocked layout"
+            )
+        want = scale_bytes(d, rows, k)
+        if t.numel() < want:
+            raise ValueError(
+                f"{name} must hold {want} bytes of the 128x4 blocked scale layout, got {t.numel()}"
+            )
 
 
-def launcher(dtype, m, n, k):
-    """Return the launcher bound to the stored configuration for a shape.
-
-    A shape with no stored configuration is tuned first and the winner stored.
-
-    Args:
-        dtype: Dtype name as configs.json spells it.
-        m: Rows of A and C.
-        n: Rows of B and columns of C.
-        k: Reduction length in elements, not bytes.
-
-    Returns:
-        A callable taking the operands and an optional `out`.
-    """
-    key = (dtype, m, n, k)
-    launch = _launchers.get(key)
-    if launch is None:
-        config = resolve_config(dtype, m, n, k)
-        launch = _launchers[key] = capi.launcher(dtype, config, m, n, k)
-    return launch
+def output(d, m, n, out, device):
+    """The tensor C is written to: `out` checked, or a new row-major one."""
+    if out is None:
+        return torch.empty((m, n), device=device, dtype=d.out)
+    if not (out.is_contiguous() and out.shape == (m, n) and out.dtype is d.out and out.device == device):
+        raise ValueError(f"out must be a contiguous {d.out} [{m}, {n}] on {device}")
+    if out.data_ptr() % 16:
+        raise ValueError("out must start on a 16-byte boundary")
+    return out
 
 
 def gemm(a, b, sfa=None, sfb=None, out=None, atype=None, btype=None):
     """Compute C[M, N] = A[M, K] @ B[N, K].T.
 
-    Both operands are row-major with K innermost. Every call runs a measured
-    configuration from configs.json; a (dtype, shape) with no entry is tuned on
-    its first call, a few minutes on the GPU, and the winner is stored. The
-    first call also loads the kernel library, compiling it when a wheel did
-    not ship one.
-
-    Dense: the element is inferred from the dtype (bfloat16, float16, float32
-    computed as tf32, int8, float8_e4m3fn, float8_e5m2). uint8 holds u8, e3m2,
-    e2m3 or e2m1, fp6 and fp4 packed densely along K with K a multiple of 128,
-    and is named with `atype` and `btype`. Mixed e4m3 x e5m2 is supported.
-
-    Block-scaled: nvfp4 is float4_e2m1fn_x2 operands with float8_e4m3fn scales
-    per 16, mxfp8 is float8_e4m3fn with float8_e8m0fnu per 32, mxfp4 is
-    float4_e2m1fn_x2 with float8_e8m0fnu per 32.
-
     Args:
         a: `(M, K)` operand.
         b: `(N, K)` operand.
-        sfa: Scales of `a` in the 128x4 blocked layout `torch._scaled_mm` takes
-            (`to_blocked` builds it); block-scaled calls only.
+        sfa: Scales of `a` in the 128x4 blocked layout `torch._scaled_mm`
+            takes (`to_blocked` builds it); block-scaled formats only.
         sfb: Scales of `b`, likewise.
         out: Output to write into instead of allocating one.
-        atype: Element name for a `uint8` operand.
-        btype: Element name for `b`; defaults to `atype` when the dtypes
-            match.
+        atype: Element name for a `uint8` operand: "u8", "e3m2", "e2m3" or "e2m1".
+        btype: Element name for `b`; defaults to `atype` when the dtypes match.
 
     Returns:
-        Dense: `(M, N)` float32, or int32 for int8, with column-major strides
-        `(1, M)`, which is how the accumulator leaves tensor memory; call
-        `.contiguous()` for row-major. Block-scaled: `(M, N)` bfloat16,
-        row-major.
+        `(M, N)`, row-major: float32 for dense formats, int32 for s8 and u8,
+        bfloat16 for block-scaled ones.
     """
-    if (sfa is None) != (sfb is None):
-        raise ValueError("sfa and sfb go together: both or neither")
-    dtype = dtype_name(a, b, sfa, atype, btype)
-    d = DTYPES[dtype]
-    key = (dtype, a.size(0), b.size(0), d.k_values(a.size(1)))
-    launch = _launchers.get(key)
-    if launch is None:
-        if not a.is_cuda:
-            raise TypeError("a and b must be CUDA tensors")
-        with torch.cuda.device(a.device):
-            launch = launcher(*key)
-    if sfa is None:
-        return launch(a, b, out=out)
-    return launch(a, b, sfa, sfb, out=out)
+    name = dtype_name(a, b, sfa, atype, btype)
+    d = DTYPES[name]
+    m, n, k = a.size(0), b.size(0), k_of(d, a.size(1))
+    check_operands(d, m, n, k, a, b, sfa, sfb)
+    lib, g = _bound.get((name, m, n, k)) or bind(name, m, n, k, a.device)
+    out = output(d, m, n, out, a.device)
+    lib.launch(g, a, b, sfa, sfb, out)
+    return out

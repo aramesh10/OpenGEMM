@@ -203,6 +203,26 @@ __device__ __forceinline__ void st_shared_v4b(int addr, T a, T b, T c, T d) {
   st_shared_v4(addr, w[0], w[1], w[2], w[3]);
 }
 
+// 16 and 32 bytes of a row at once; the address must be aligned to match.
+template <class T>
+__device__ __forceinline__ void st_global_v4b(T *p, const T *v) {
+  float w[4];
+  __builtin_memcpy(w, v, sizeof(w));
+  asm volatile("st.global.v4.b32 [%0], {%1, %2, %3, %4};" ::"l"(p), "f"(w[0]),
+               "f"(w[1]), "f"(w[2]), "f"(w[3])
+               : "memory");
+}
+
+template <class T>
+__device__ __forceinline__ void st_global_v8b(T *p, const T *v) {
+  float w[8];
+  __builtin_memcpy(w, v, sizeof(w));
+  asm volatile("st.global.v8.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8};" ::"l"(p),
+               "f"(w[0]), "f"(w[1]), "f"(w[2]), "f"(w[3]), "f"(w[4]), "f"(w[5]),
+               "f"(w[6]), "f"(w[7])
+               : "memory");
+}
+
 template <int CTA_GROUP, Kind K>
 __device__ __forceinline__ void tcgen05_mma(int d, uint64_t a, uint64_t b,
                                             uint32_t i, int ena_d) {

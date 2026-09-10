@@ -35,9 +35,9 @@ inline CUresult init_sf_tmap(CUtensorMap *tmap, void *ptr, uint64_t rows,
       CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
 }
 
-inline void init_c_tmap(CUtensorMap *tmap, void *ptr, uint64_t rows,
+inline CUresult init_c_tmap(CUtensorMap *tmap, void *ptr, uint64_t rows,
                         uint64_t cols, uint32_t tile_rows, uint32_t tile_cols,
                         CUtensorMapSwizzle swizzle) {
-  tmap_2d(tmap, CU_TENSOR_MAP_DATA_TYPE_BFLOAT16, ptr, rows, cols, tile_rows,
+  return tmap_2d(tmap, CU_TENSOR_MAP_DATA_TYPE_BFLOAT16, ptr, rows, cols, tile_rows,
           tile_cols, cols * BF16_BYTES, swizzle);
 }

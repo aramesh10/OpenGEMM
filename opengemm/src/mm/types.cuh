@@ -166,6 +166,10 @@ struct Geom {
             : epi_tile_n * block_m * static_cast<int>(sizeof(float));
     static constexpr int  c_tma_n =
         (mma_n < epi_tile_n) ? mma_n : epi_tile_n;
+    // Row-major staging goes through 128-byte swizzled TMA boxes when the
+    // fragment divides into them; the transposed swap_ab staging needs none.
+    static constexpr int  store_n   = 128 / static_cast<int>(sizeof(acc_t));
+    static constexpr bool vec_stage = !swap_ab && c_tma_n % store_n == 0;
 
     static constexpr int  stages_with_epi =
         fit_stages(stages_want, stage_bytes, epi_bufs * epi_buf_bytes);

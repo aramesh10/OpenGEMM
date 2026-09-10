@@ -33,3 +33,7 @@ packages = ["opengemm", "opengemm.python"]
 [tool.setuptools.package-data]
 opengemm = ["shapes.jsonc", "src/*/*.cu", "src/*/*.cuh", "src/*/*.h",
             "src/*/configs.json", "lib/*.so", "lib/stamp.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

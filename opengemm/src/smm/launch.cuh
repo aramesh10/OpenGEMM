@@ -3,52 +3,61 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
 
 #include "capi.h"
-#include "common/launch.cuh"
-#include "common/registry.cuh"
 #include "kernel.cuh"
 #include "registry.cuh"
 #include "tmap.cuh"
 #include "types.cuh"
 
+#include "common/launch.cuh"
+
 namespace opengemm_smm {
 
 using opengemm::ceil_div;
+using opengemm::check_tmap;
 using opengemm::error_text;
-using opengemm::set_error;
+using opengemm::fail;
+using smm_registry::Named;
+using smm_registry::POLICIES;
 
-inline constexpr int REGISTRY_COLS = 11;
-inline constexpr const char *REGISTRY_FIELDS =
-    "elem,sf,use_2cta,output_n,swap_ab,epi_trade,deep_stages,use_clc,"
-    "cluster_m,cluster_n,cluster_k";
-inline constexpr const char *ENUMS =
-    "elem=e4m3,e5m2,e3m2,e2m3,e2m1_c8,e2m1;sf=ue4m3,ue8m0";
+inline constexpr int KERNELS = static_cast<int>(POLICIES.size());
 
-constexpr std::array<int32_t, REGISTRY_COLS> policy_row(const Policy &p) {
-  return {static_cast<int32_t>(p.elem_a),
-          static_cast<int32_t>(p.elem_sf),
-          p.cta_group == 2,
-          p.mma_n,
-          p.swap_ab,
-          p.epi_trade,
-          p.deep,
-          p.use_clc,
-          p.cta_group * p.rm,
-          p.rn,
-          p.rk};
+// The configuration an OgGemm asks for, as error text.
+inline void spell(char *out, size_t cap, const OgGemm &g) {
+  snprintf(out, cap,
+           "use_2cta=%d output_n=%d use_clc=%d swap_ab=%d cluster_m=%d "
+           "cluster_n=%d cluster_k=%d epi_trade=%d deep_stages=%d",
+           g.use_2cta, g.output_n, g.use_clc, g.swap_ab, g.cluster_m,
+           g.cluster_n, g.cluster_k, g.epi_trade, g.deep_stages);
 }
 
-inline constexpr auto REGISTRY =
-    opengemm::make_table<REGISTRY_COLS>(policy_row, smm_registry::All{});
-inline constexpr int REGISTRY_ROWS =
-    static_cast<int>(REGISTRY.size()) / REGISTRY_COLS;
-
-static_assert(opengemm::name_count(REGISTRY_FIELDS) == REGISTRY_COLS,
-              "REGISTRY_FIELDS names a different number of columns than "
-              "policy_row writes");
+// Resolve an OgGemm to the compiled kernel it names: check the dtype and K,
+// and find the Policy in the registry.
+inline int bind(OgGemm *g) {
+  const Named *d = smm_registry::named(g->dtype);
+  if (!d)
+    return fail(OG_ERR_BIND, "dtype %.16s names no block-scaled format this build compiles", g->dtype);
+  if (g->m <= 0 || g->n <= 0 || g->k <= 0)
+    return fail(OG_ERR_BIND, "m, n and k must be positive, got %d, %d, %d", g->m, g->n, g->k);
+  const int block = sf_block_of(d->sf);
+  if (g->k % block)
+    return fail(OG_ERR_BIND, "K = %d is not a multiple of the %d-wide scale block of %s",
+                g->k, block, d->name);
+  const Policy want = smm_registry::policy_of(*g, *d);
+  for (int i = 0; i < KERNELS; ++i)
+    if (POLICIES[i] == want) {
+      g->row = i;
+      return OG_OK;
+    }
+  char spelled[160];
+  spell(spelled, sizeof spelled, *g);
+  return fail(OG_ERR_NO_KERNEL, "no compiled %s kernel matches %s", d->name, spelled);
+}
 
 inline int sm_count() {
+  // Read once per process: every device is taken to be the same GPU.
   static const int count = [] {
     int device = 0, n = 0;
     cudaGetDevice(&device);
@@ -76,15 +85,15 @@ Operands mma_operands(void *a, void *b, void *sfa, void *sfb, int m, int n) {
 }
 
 template <Policy P>
-int launch_cfg(void *a, void *b, void *sfa, void *sfb, void *c, int m, int n,
-               int k, int supergroup, int epi_direct, int persistent,
+int launch_cfg(const OgGemm *g, void *a, void *b, void *sfa, void *sfb, void *c,
                int device, cudaStream_t stream) {
   using G = Geom<P>;
   opengemm::configure_kernel<smm_gemm_kernel<P>, G>(device);
 
-  const Operands op = mma_operands<P>(a, b, sfa, sfb, m, n);
+  const Operands op = mma_operands<P>(a, b, sfa, sfb, g->m, g->n);
+  const int k = g->k;
   const int sf_n_blocks = (G::cta_group == 1) ? G::sf_n_blocks : 1;
-  const int c_cols      = (n + 7) & ~7;
+  const int c_cols      = (g->n + 7) & ~7;
   const int c_tile_rows = G::swap_ab ? G::c_tma_n : G::block_m;
   const int c_tile_cols = G::swap_ab ? G::block_m
                         : G::vec_stage ? G::store_n
@@ -94,17 +103,26 @@ int launch_cfg(void *a, void *b, void *sfa, void *sfb, void *c, int m, int n,
                                      : CU_TENSOR_MAP_SWIZZLE_NONE;
 
   CUtensorMap a_tmap, b_tmap, c_tmap, sfa_tmap, sfb_tmap;
-  init_ab_tmap(&a_tmap, op.a, op.m, k, G::block_m, G::block_k, G::elem_bits);
-  init_ab_tmap(&b_tmap, op.b, op.n, k, G::block_n, G::block_k, G::elem_bits);
-  init_sf_tmap(&sfa_tmap, op.sfa, op.m, k, G::block_k, 1, G::sf_block);
-  init_sf_tmap(&sfb_tmap, op.sfb, op.n, k, G::block_k, sf_n_blocks,
-               G::sf_block);
-  init_c_tmap(&c_tmap, c, m, c_cols, c_tile_rows, c_tile_cols, c_swizzle);
+  if (const int bad = check_tmap(
+          init_ab_tmap(&a_tmap, op.a, op.m, k, G::block_m, G::block_k, G::elem_bits), "A"))
+    return bad;
+  if (const int bad = check_tmap(
+          init_ab_tmap(&b_tmap, op.b, op.n, k, G::block_n, G::block_k, G::elem_bits), "B"))
+    return bad;
+  if (const int bad = check_tmap(
+          init_sf_tmap(&sfa_tmap, op.sfa, op.m, k, G::block_k, 1, G::sf_block), "SFA"))
+    return bad;
+  if (const int bad = check_tmap(
+          init_sf_tmap(&sfb_tmap, op.sfb, op.n, k, G::block_k, sf_n_blocks, G::sf_block), "SFB"))
+    return bad;
+  if (const int bad = check_tmap(
+          init_c_tmap(&c_tmap, c, g->m, c_cols, c_tile_rows, c_tile_cols, c_swizzle), "C"))
+    return bad;
 
   const int64_t tiles = ceil_div(ceil_div(op.m, G::mma_m), G::mc_m)
                       * ceil_div(ceil_div(op.n, G::mma_n), G::mc_n);
   int clusters = static_cast<int>(tiles);
-  if (persistent && !G::use_clc)
+  if (g->persistent && !G::use_clc)
     clusters = std::min(clusters, wave_clusters(G::cluster_ctas));
 
   cudaLaunchAttribute attrs[2] = {};
@@ -125,16 +143,14 @@ int launch_cfg(void *a, void *b, void *sfa, void *sfb, void *c, int m, int n,
 
   const cudaError_t launched = cudaLaunchKernelEx(
       &cfg, smm_gemm_kernel<P>, a_tmap, b_tmap, c_tmap, sfa_tmap, sfb_tmap,
-      static_cast<uint16_t *>(c), op.m, op.n, k, supergroup, epi_direct);
-  if (launched != cudaSuccess) {
-    set_error("cudaLaunchKernelEx", cudaGetErrorString(launched));
-    return OG_ERR_LAUNCH;
-  }
+      static_cast<uint16_t *>(c), op.m, op.n, k, g->supergroup, g->epi_direct);
+  if (launched != cudaSuccess)
+    return fail(OG_ERR_LAUNCH, "cudaLaunchKernelEx: %s", cudaGetErrorString(launched));
   return OG_OK;
 }
 
-using LaunchFn = int (*)(void *, void *, void *, void *, void *, int, int,
-                         int, int, int, int, int, cudaStream_t);
+using LaunchFn = int (*)(const OgGemm *, void *, void *, void *, void *, void *,
+                         int, cudaStream_t);
 
 template <Policy... Ps>
 constexpr auto make_launchers(opengemm::List<Ps...>) {
@@ -142,8 +158,6 @@ constexpr auto make_launchers(opengemm::List<Ps...>) {
 }
 
 inline constexpr auto LAUNCHERS = make_launchers(smm_registry::All{});
-static_assert(static_cast<int>(LAUNCHERS.size()) == REGISTRY_ROWS,
-              "the launcher table and the registry disagree on how many "
-              "kernels this build compiles");
+static_assert(LAUNCHERS.size() == POLICIES.size());
 
 }

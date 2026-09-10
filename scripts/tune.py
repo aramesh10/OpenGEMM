@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from opengemm import DTYPES
-from opengemm.python import bench
+from opengemm.python.configs import load_shapes
 from opengemm.python.tune import tune
 
 
@@ -27,10 +27,9 @@ def main():
     parser.add_argument("--dtype", required=True, choices=sorted(DTYPES))
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--shape", nargs=3, type=int, metavar=("M", "N", "K"))
-    group.add_argument("--all", action="store_true",
-                       help="every shape in shapes.jsonc")
+    group.add_argument("--all", action="store_true", help="every shape in shapes.jsonc")
     args = parser.parse_args()
-    for m, n, k in ([tuple(args.shape)] if args.shape else bench.load_shapes()):
+    for m, n, k in [tuple(args.shape)] if args.shape else load_shapes():
         try:
             tune(args.dtype, m, n, k)
         except RuntimeError as exc:

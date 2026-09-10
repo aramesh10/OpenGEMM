@@ -28,7 +28,8 @@ _package = types.ModuleType("_opengemm_build")
 _package.__path__ = [str(_HERE / "opengemm" / "python")]
 sys.modules["_opengemm_build"] = _package
 _spec = importlib.util.spec_from_file_location(
-    "_opengemm_build.build", _HERE / "opengemm" / "python" / "build.py")
+    "_opengemm_build.build", _HERE / "opengemm" / "python" / "build.py"
+)
 og_build = importlib.util.module_from_spec(_spec)
 sys.modules["_opengemm_build.build"] = og_build
 _spec.loader.exec_module(og_build)
@@ -36,22 +37,21 @@ _spec.loader.exec_module(og_build)
 IMPLS = ("mm", "smm")
 
 
-def abi_version(impl):
-    """Return the ABI version src/<impl>/capi.h declares."""
-    header = (_HERE / "opengemm" / "src" / impl / "capi.h").read_text()
-    found = re.search(rf"OG_{impl.upper()}_ABI_VERSION (\d+)", header)
-    return int(found.group(1))
+def abi_version():
+    """Return the ABI version src/common/abi.h declares."""
+    header = (_HERE / "opengemm" / "src" / "common" / "abi.h").read_text()
+    return int(re.search(r"OG_ABI_VERSION (\d+)", header).group(1))
 
 
 def nvcc_version():
     """Return the nvcc release line, or None when nvcc is not on the path."""
     try:
-        out = subprocess.run(["nvcc", "--version"], capture_output=True,
-                             text=True, check=True).stdout
+        out = subprocess.run(
+            ["nvcc", "--version"], capture_output=True, text=True, check=True
+        ).stdout
     except (OSError, subprocess.CalledProcessError):
         return None
-    return next((line.strip() for line in out.splitlines()
-                 if "release" in line), "unknown")
+    return next((line.strip() for line in out.splitlines() if "release" in line), "unknown")
 
 
 class build_py(_build_py):
@@ -60,20 +60,28 @@ class build_py(_build_py):
     def run(self):
         super().run()
         if os.environ.get("OPENGEMM_SKIP_KERNELS"):
-            print("opengemm: OPENGEMM_SKIP_KERNELS set; the wheel ships "
-                  "sources and compiles at first use")
+            print(
+                "opengemm: OPENGEMM_SKIP_KERNELS set; the wheel ships "
+                "sources and compiles at first use"
+            )
             return
         out = Path(self.build_lib) / "opengemm" / "lib"
         out.mkdir(parents=True, exist_ok=True)
         for impl in IMPLS:
             print(f"opengemm: compiling the {impl} library")
             og_build.compile_library(impl, out / f"libopengemm_{impl}.so")
-        (out / "stamp.json").write_text(json.dumps({
-            "abi": {impl: abi_version(impl) for impl in IMPLS},
-            "arch": og_build.ARCH,
-            "nvcc": nvcc_version(),
-            "sources": {impl: og_build.source_hash(impl) for impl in IMPLS},
-        }, indent=1) + "\n")
+        (out / "stamp.json").write_text(
+            json.dumps(
+                {
+                    "abi": abi_version(),
+                    "arch": og_build.ARCH,
+                    "nvcc": nvcc_version(),
+                    "sources": {impl: og_build.source_hash(impl) for impl in IMPLS},
+                },
+                indent=1,
+            )
+            + "\n"
+        )
 
 
 class bdist_wheel(_bdist_wheel):

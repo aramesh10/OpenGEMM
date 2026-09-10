@@ -24,11 +24,13 @@ __device__ __forceinline__ void tcgen05_ld(T *dst, int row, int col) {
     else                        tcgen05_ld_32x32bx64(words, row, col);
 }
 
+// C is row-major [m, n] in the caller's terms; with swap_ab the kernel's rows
+// are the caller's columns.
 template <bool SWAP_AB, bool ACC_STORE, class T>
 __device__ __forceinline__ void store_c(T *c, int m, int n, int row, int col,
                                         T value) {
-    T *p = c + (SWAP_AB ? static_cast<size_t>(row) * n + col
-                        : static_cast<size_t>(col) * m + row);
+    T *p = c + (SWAP_AB ? static_cast<size_t>(col) * m + row
+                        : static_cast<size_t>(row) * n + col);
     if constexpr (ACC_STORE) atomicAdd(p, value);
     else                     *p = value;
 }
@@ -66,6 +68,8 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     constexpr int  EPI_ITERS     = G::epi_iters;
     constexpr int  LAST_EPI_N    = G::last_epi_n;
     constexpr int  EPI_BUF_BYTES = G::epi_buf_bytes;
+    constexpr int  STORE_N       = G::store_n;
+    constexpr bool VEC_STAGE     = G::vec_stage;
     constexpr int  HOLD          = G::hold;
     constexpr bool ALWAYS_DIRECT = G::always_direct;
     constexpr bool DROP_EPI_BUF  = G::drop_epi_buf;
@@ -394,6 +398,7 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
         const bool epi_leader   = (local_warp == 0) && elect_sync();
         const int  epi_buf      = smem + NUM_STAGES * STAGE_BYTES
                                        + consumer * EPI_BUF_BYTES;
+        const bool c_aligned_32 = (reinterpret_cast<uintptr_t>(c) & 31) == 0;
 
         int  tile_id     = cluster_idx;
         int  tile_idx    = 0;
@@ -404,11 +409,10 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
             tile_origin(tile_id, off_m, off_n);
             off_m += (DUAL_MMA ? consumer * MMA_M : 0) + cta_in_group * BLOCK_M;
 
+            // TMA clips a box past the edges of C, but needs its row pitch
+            // to be 16 bytes, which n % 4 == 0 gives.
             const bool direct_store =
-                ALWAYS_DIRECT || DROP_EPI_BUF ||
-                (SWAP_AB ? (n % 8 != 0)
-                         : (m % 8 != 0) || (off_m + BLOCK_M > m)
-                                        || (off_n + MMA_N > n));
+                ALWAYS_DIRECT || DROP_EPI_BUF || ((SWAP_AB ? m : n) % 4 != 0);
 
             const int acc_slot = DUAL_MMA ? consumer : (tile_idx & 1);
             const int phase    = DUAL_MMA ? (tile_idx & 1)
@@ -418,6 +422,11 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
 
             constexpr int ACC_N = (EPI_TILE_N < 64) ? 64 : EPI_TILE_N;
             ACC acc[HOLD][ACC_N];
+
+            // The width of every fragment the TMA path stores; a shorter
+            // tail goes direct.
+            constexpr int FRAG_N = (EPI_ITERS == 1) ? LAST_EPI_N : EPI_TILE_N;
+            constexpr int BOX_BYTES = BLOCK_M * STORE_N * FLOAT_BYTES;
 
             #pragma unroll
             for (int frag = 0; frag < EPI_ITERS; ++frag) {
@@ -459,12 +468,28 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
                     bar_sync(epi_bar, EPI_THREADS);
                 }
 
+                const int base_n = off_n + frag * EPI_TILE_N;
+
                 if (direct) {
                     const int global_m = off_m + row_in_block;
-                    if (global_m < m) {
+                    // A lane holds one row of C, so a fragment inside C goes
+                    // out a sector at a time; with swap_ab the lanes' rows
+                    // are columns of C and the words are consecutive as is.
+                    const bool inside = !SWAP_AB && !ACC_STORE && global_m < m
+                                     && base_n + cols <= n;
+                    ACC *row = c + static_cast<size_t>(global_m) * n + base_n;
+                    if (inside && n % 8 == 0 && c_aligned_32) {
+                        #pragma unroll
+                        for (int i = 0; i < EPI_TILE_N; i += 8)
+                            if (i < cols) st_global_v8b(row + i, &acc[held][i]);
+                    } else if (inside && n % 4 == 0) {
+                        #pragma unroll
+                        for (int i = 0; i < EPI_TILE_N; i += 4)
+                            if (i < cols) st_global_v4b(row + i, &acc[held][i]);
+                    } else if (global_m < m) {
                         #pragma unroll
                         for (int i = 0; i < EPI_TILE_N; ++i) {
-                            const int global_n = off_n + frag * EPI_TILE_N + i;
+                            const int global_n = base_n + i;
                             if (i < cols && global_n < n)
                                 store_c<SWAP_AB, ACC_STORE>(
                                     c, m, n, global_m, global_n, acc[held][i]);
@@ -475,42 +500,56 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
                 }
 
                 if constexpr (SWAP_AB) {
-                    constexpr int FRAG_N = (EPI_ITERS == 1) ? LAST_EPI_N
-                                                            : EPI_TILE_N;
-                    constexpr int STEP   = (FRAG_N % 4 == 0) ? 4 : 1;
-                    const int row = epi_buf + row_in_block * cols * FLOAT_BYTES;
+                    // Transposed: smem row i is the caller's row base_n + i,
+                    // so consecutive lanes write consecutive words.
                     #pragma unroll
-                    for (int i = 0; i < FRAG_N; i += STEP) {
-                        if (STEP == 4 && i + 3 < cols) {
-                            st_shared_v4b(row + i * FLOAT_BYTES,
-                                         acc[held][i],     acc[held][i + 1],
-                                         acc[held][i + 2], acc[held][i + 3]);
-                        } else {
-                            #pragma unroll
-                            for (int j = 0; j < STEP; ++j)
-                                if (i + j < cols)
-                                    st_shared_b32(row + (i + j) * FLOAT_BYTES,
-                                                  acc[held][i + j]);
-                        }
-                    }
-                } else {
-                    #pragma unroll
-                    for (int i = 0; i < EPI_TILE_N; ++i)
+                    for (int i = 0; i < FRAG_N; ++i)
                         st_shared_b32(epi_buf + (i * BLOCK_M + row_in_block)
                                                     * FLOAT_BYTES,
                                       acc[held][i]);
+                } else if constexpr (VEC_STAGE) {
+                    // One 128-byte swizzled box per store_n columns.
+                    const int row = epi_buf + row_in_block * STORE_N * FLOAT_BYTES;
+                    #pragma unroll
+                    for (int h = 0; h < FRAG_N / STORE_N; ++h) {
+                        #pragma unroll
+                        for (int chunk = 0; chunk < STORE_N / 4; ++chunk) {
+                            const int i = h * STORE_N + chunk * 4;
+                            st_shared_v4b(row + h * BOX_BYTES
+                                              + ((chunk ^ (row_in_block & 7)) * 16),
+                                          acc[held][i],     acc[held][i + 1],
+                                          acc[held][i + 2], acc[held][i + 3]);
+                        }
+                    }
+                } else {
+                    const int row = epi_buf + row_in_block * FRAG_N * FLOAT_BYTES;
+                    if constexpr (FRAG_N % 4 == 0) {
+                        #pragma unroll
+                        for (int i = 0; i < FRAG_N; i += 4)
+                            st_shared_v4b(row + i * FLOAT_BYTES,
+                                          acc[held][i],     acc[held][i + 1],
+                                          acc[held][i + 2], acc[held][i + 3]);
+                    } else {
+                        #pragma unroll
+                        for (int i = 0; i < FRAG_N; ++i)
+                            st_shared_b32(row + i * FLOAT_BYTES, acc[held][i]);
+                    }
                 }
 
                 tma_store_fence();
                 bar_sync(epi_bar, EPI_THREADS);
 
                 if (epi_leader) {
-                    if constexpr (SWAP_AB)
-                        tma_store_2d(epi_buf, &c_tmap,
-                                     off_n + frag * EPI_TILE_N, off_m);
-                    else
-                        tma_store_2d(epi_buf, &c_tmap, off_m,
-                                     off_n + frag * EPI_TILE_N);
+                    if constexpr (SWAP_AB) {
+                        tma_store_2d(epi_buf, &c_tmap, off_m, base_n);
+                    } else if constexpr (VEC_STAGE) {
+                        #pragma unroll
+                        for (int h = 0; h < FRAG_N / STORE_N; ++h)
+                            tma_store_2d(epi_buf + h * BOX_BYTES, &c_tmap,
+                                         base_n + h * STORE_N, off_m);
+                    } else {
+                        tma_store_2d(epi_buf, &c_tmap, base_n, off_m);
+                    }
                     tma_store_commit();
                 }
             }
