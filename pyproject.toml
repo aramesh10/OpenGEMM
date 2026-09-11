@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opengemm"
-version = "0.1.1"
+version = "0.1.2"
 description = "Open GEMM kernels for NVIDIA B200 (sm_100a) in CUDA"
 readme = "README.md"
 license = {file = "LICENSE"}
