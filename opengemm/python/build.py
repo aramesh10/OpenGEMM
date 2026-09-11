@@ -116,13 +116,12 @@ def library_path(impl):
     if out.exists():
         return out
     out.parent.mkdir(parents=True, exist_ok=True)
-    log(
-        f"building the {impl} library: one nvcc over every kernel in src/{impl}/registry.cuh, "
-        f"about half a minute; cached under {CACHE}"
-    )
+    log(f"Building the {impl} extension")
+    log(f"Compiles once then cached at {out.parent}")
+    log("May take up to 2 minutes...")
     started = time.perf_counter()
     compile_library(impl, out)
-    log(f"built the {impl} library in {time.perf_counter() - started:.0f} s")
+    log(f"Built the {impl} extension in {time.perf_counter() - started:.0f}s")
     return out
 
 def prebuild(impls=("mm", "smm")):
