@@ -20,7 +20,8 @@ classifiers = [
     "Environment :: GPU :: NVIDIA CUDA",
     "Topic :: Scientific/Engineering",
 ]
-dependencies = ["torch>=2.8"]
+# numpy is unused by opengemm, but torch warns on import without it.
+dependencies = ["torch>=2.8", "numpy"]
 
 [project.urls]
 Homepage = "https://github.com/aramesh10/OpenGEMM"
