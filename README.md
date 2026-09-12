@@ -12,6 +12,8 @@ og.emit_kernel(a, b, file="k.cu")    # emits .cu/.cuh for this shape
 c = og.run_kernel("k.cu", a, b)      # compiles emitted kernel and runs it
 ```
 
+Check [API.md](https://github.com/aramesh10/OpenGEMM/blob/main/API.md) for documentation.
+
 ## Install
 
 From PyPI
