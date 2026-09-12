@@ -74,14 +74,6 @@ def unpack(packed, elem, k):
     bits = SMALL_FLOATS[elem][2]
     return _values(elem, packed.device)[_unpack_bits(packed, k, bits).long()]
 
-def pack_e2m1(x):
-    """Pack values to e2m1 codes, two per byte, low nibble first."""
-    return pack(x, "e2m1")
-
-def unpack_e2m1(packed, k):
-    """Unpack e2m1 codes to `(rows, k)` float32 values."""
-    return unpack(packed, "e2m1", k)
-
 def round_tf32(x):
     """Round float32 values to the 10 mantissa bits tf32 keeps."""
     bits = x.view(torch.int32)
