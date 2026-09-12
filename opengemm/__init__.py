@@ -11,7 +11,7 @@ from .python.api import gemm
 from .python.build import prebuild
 from .python.dtypes import DTYPES, dtype_name
 from .python.emit import emit_kernel
-from .python.quant import pack_e2m1, quantize, to_blocked, unpack_e2m1
+from .python.quant import pack, quantize, to_blocked, unpack
 from .python.run import run_kernel
 
 __all__ = [
@@ -23,7 +23,7 @@ __all__ = [
     "DTYPES",
     "quantize",
     "to_blocked",
-    "pack_e2m1",
-    "unpack_e2m1",
+    "pack",
+    "unpack",
 ]
-__version__ = "0.1.3"
+__version__ = "0.1.4"

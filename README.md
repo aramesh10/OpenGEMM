@@ -29,25 +29,9 @@ pip install -e .
 Requirements: 
 - sm_100a
 - PyTorch 2.8+
-- CUDA 12.9+ with `nvcc` on the path, for a clone, an edited kernel, or
-  `emit_kernel`. A wheel ships the kernels already compiled and needs only the
-  driver.
+- CUDA 12.9+
 
-The kernels are compiled into two libraries that link no libtorch and no
-libpython, so one build serves every PyTorch and Python version. A wheel ships
-them; a clone compiles them on the first `gemm()` call, about 25 s for both.
-To pay that at install time instead:
-
-```bash
-python -m opengemm
-```
-
-Or from Python, `og.prebuild()`. Either is a no-op once the libraries exist,
-so it is safe in a Dockerfile, a post-install step or a test fixture. The
-result is cached under `OPENGEMM_CACHE` (default `~/.cache/opengemm`), keyed
-by a digest of the sources it was built from and of the nvcc and flags that
-built it, so editing a kernel or upgrading CUDA rebuilds and a reinstall does
-not. `OPENGEMM_JIT=1` forces the build even when a wheel shipped one.
+The kernels are compiled into two libraries on the first `gemm()` call and takes ~25s. Run `python -m opengemm` or from python `og.prebuild()` to pay the cost at install time instead.
 
 ## Agent Quickstart
 
@@ -61,10 +45,10 @@ python -c "
 import opengemm as og
 S = dict(m=1024, n=1024, k=1024)
 
-og.emit_kernel(**S, atype='bf16', file='k')        # writes k.cu and k.cuh
-og.emit_kernel(**S, atype='e4m3', btype='e5m2')   # mixed, names itself
-og.emit_kernel(**S, atype='e2m1', sftype='ue4m3') # block-scaled (nvfp4)
-src, hdr = og.emit_kernel(**S, atype='bf16')       # the text, always returned
+og.emit_kernel(**S, atype='bf16', file='k')         # writes k.cu and k.cuh
+og.emit_kernel(**S, atype='e4m3', btype='e5m2')     # mixed, names itself
+og.emit_kernel(**S, atype='e2m1', sftype='ue4m3')   # block-scaled (nvfp4)
+src, hdr = og.emit_kernel(**S, atype='bf16')        # the text, always returned
 print(src, hdr)
 "
 atype / btype: bf16 f16 tf32 s8 u8 e4m3 e5m2 e3m2 e2m3 e2m1
@@ -110,9 +94,6 @@ CUDA_VISIBLE_DEVICES=0 python scripts/test.py                           # correc
 
 `tune.py` ablates every compiled configuration for a shape and records the best performing config to `configs.json`
 
-`CUDA_VISIBLE_DEVICES` above pins tuning to one GPU for repeatable timings; it
-is not required. `gemm()` launches on whichever device its operands are on.
-
 ## Standalone kernels
 
 ```bash
@@ -127,9 +108,7 @@ nvcc -O3 -std=c++20 -gencode=arch=compute_100a,code=sm_100a --expt-relaxed-const
 ```
 
 The entry point is `extern "C" void mm_<dtype>_<M>_<N>_<K>(a, b, c, stream)`,
-or `smm_<dtype>_<M>_<N>_<K>(a, b, sfa, sfb, c, stream)` for a block-scaled
-format. It reads which device the operands are on and launches there, so it
-does not care what the caller's current device is.
+or `smm_<dtype>_<M>_<N>_<K>(a, b, sfa, sfb, c, stream)` 
 
 `emit_kernel` reads only shapes and dtypes, so meta tensors work:
 `emit_kernel(torch.empty(4096, 4096, dtype=torch.bfloat16, device="meta"), ...)`.
