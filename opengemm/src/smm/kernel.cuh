@@ -337,8 +337,13 @@ void smm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
                 const uint64_t a_desc0 = make_ab_desc(a_smem);
                 const uint64_t b_desc0 = make_ab_desc(b_smem);
 
+                // Fold the tail: past the end of K the stage holds TMA's zero
+                // fill, so the MMAs that would read only zeros are skipped.
+                const int k_left = k - iter_k * BLOCK_K;
+
                 #pragma unroll
                 for (int ki = 0; ki < K_ITERS; ++ki) {
+                    if (ki * G::mma_k >= k_left) break;
                     const int sf_byte = ki * NSF;
                     const int sf_word = (sf_byte >> 2) * 4;
                     const uint32_t sf_id = sf_byte & 3;

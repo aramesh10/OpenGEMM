@@ -20,6 +20,12 @@ skipped by default, since there is no "best config" to report for it; pass
 --tune-missing to tune and store it first (a few minutes each), then measure
 it like the rest.
 
+Formats torch has no kernel for - u8, e5m2, e3m2, e2m3, e2m1, mxfp4 - are
+measured against CUTLASS instead, in a few tile shapes each, reporting the
+fastest one that reproduces the reference. That needs a CUTLASS 4.x checkout in
+OPENGEMM_CUTLASS (or CUTLASS_PATH); without one those formats report "no
+baseline" as before, and --no-cutlass turns the fallback off outright.
+
 Pin a GPU with CUDA_VISIBLE_DEVICES - the full sweep is 14 dtypes x 68
 shapes and an unpinned run lands on device 0 alongside anything else there.
 Full-precision timing (the default) takes on the order of an hour for the
@@ -41,6 +47,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import torch
 
@@ -48,6 +55,7 @@ from opengemm import DTYPES
 from opengemm.python import bench, capi, configs
 from opengemm.python.build import ROOT
 from opengemm.python.configs import resolve_config
+from utils import cutlass_ref
 
 LOW_SPEEDUP = 0.95
 BAD_SPEEDUP = 0.90
@@ -67,8 +75,53 @@ def cuda_healthy():
         return False
 
 
-def row_for(dtype_name, m, n, k, config, quick):
-    """Measure one (dtype, shape) against cuBLAS.
+def mismatch(call, buffers, dtype_name, k):
+    """The first line of the mismatch when `call`'s output is not the reference, else None."""
+    rtol, atol = bench.tolerance(dtype_name, k)
+    try:
+        torch.testing.assert_close(
+            call(), bench.reference(buffers[0], dtype_name), rtol=rtol, atol=atol
+        )
+        return None
+    except Exception as exc:
+        return str(exc).splitlines()[0][:90]
+
+
+def cutlass_baseline(buffers, dtype_name, k, warmup, iterations):
+    """The fastest CUTLASS configuration for this shape, for a format cuBLAS does not serve.
+
+    Every compiled tile shape is checked against the reference before it is
+    timed, so a baseline that computes the wrong thing cannot flatter the
+    kernel it is being compared to.
+
+    Returns:
+        `(tile, microseconds)`, or `(None, reason)` when CUTLASS has nothing to
+        offer for this format.
+    """
+    timed = cutlass_ref.baselines_for(buffers, dtype_name)
+    if not timed:
+        return None, cutlass_ref.reason()
+    checks = dict(cutlass_ref.baselines_for(buffers[:1], dtype_name))
+    best, wrong = None, []
+    for tile, call in timed:
+        try:
+            failed = mismatch(checks[tile], buffers, dtype_name, k)
+            if failed:
+                wrong.append(f"{tile} {failed}")
+                continue
+            us = bench.timed(call, warmup, iterations)
+        except Exception as exc:
+            wrong.append(f"{tile} {str(exc).splitlines()[0][:90]}")
+            continue
+        if best is None or us < best[1]:
+            best = (tile, us)
+    if best is None:
+        return None, "no CUTLASS tile worked: " + "; ".join(wrong)
+    return best
+
+
+def row_for(dtype_name, m, n, k, config, quick, cutlass=True):
+    """Measure one (dtype, shape) against cuBLAS, or CUTLASS where torch has no kernel.
 
     A launch or measurement failure is recorded as status "error" rather than
     raised, so one bad shape does not end the sweep; `row["fatal"]` marks a
@@ -102,14 +155,26 @@ def row_for(dtype_name, m, n, k, config, quick):
             us = bench.timed(kernel, warmup, iterations)
             row["kernel_us"] = round(us, 3)
             row["tflops"] = round(2 * m * n * k / us / 1e6, 1)
-            if baseline is None:
-                row["status"] = "no_baseline"
-                row["note"] = why
-            else:
+            if baseline is not None:
                 base = bench.timed(baseline, warmup, iterations)
+                row["baseline"] = "cublas"
                 row["cublas_us"] = round(base, 3)
                 row["speedup"] = round(base / us, 4)
                 row["status"] = "ok"
+            elif not cutlass:
+                row["status"] = "no_baseline"
+                row["note"] = why
+            else:
+                tile, base = cutlass_baseline(buffers, dtype_name, k, warmup, iterations)
+                if tile is None:
+                    row["status"] = "no_baseline"
+                    row["note"] = f"{why}; {base}"
+                else:
+                    row["baseline"] = "cutlass"
+                    row["cutlass_tile"] = tile
+                    row["cutlass_us"] = round(base, 3)
+                    row["speedup"] = round(base / us, 4)
+                    row["status"] = "ok"
     except Exception as exc:
         row["status"] = "error"
         row["note"] = str(exc).splitlines()[0][:160]
@@ -135,16 +200,40 @@ def print_row(row):
     if row["status"] in ("error", "incorrect"):
         print(f"{m:>7}{n:>7}{k:>7}  {row['status'].upper():>10}  {row['note']}", flush=True)
         return
-    cublas = f"{row['cublas_us']:>11.2f}u" if "cublas_us" in row else f"{'-':>12}"
+    us = row.get("cublas_us", row.get("cutlass_us"))
+    base = f"{us:>11.2f}u" if us is not None else f"{'-':>12}"
     speedup = f"{row['speedup']:>8.3f}x" if "speedup" in row else f"{'-':>9}"
     note = ""
     if row["status"] == "no_baseline":
         note = f"  (no baseline: {row['note']})"
+    elif row.get("baseline") == "cutlass":
+        note = f"  (CUTLASS {row['cutlass_tile']})"
     print(
-        f"{m:>7}{n:>7}{k:>7}{cublas}{row['kernel_us']:>10.2f}u"
+        f"{m:>7}{n:>7}{k:>7}{base}{row['kernel_us']:>10.2f}u"
         f"{row['tflops']:>10.1f}{speedup}{note}",
         flush=True,
     )
+
+
+def banner(name):
+    """A callable that prints one dtype's heading, the first time it is called.
+
+    Deferred to just before the first row, so that a build or a tune - which log
+    to the console while a row is being measured - lands above the table rather
+    than inside it.
+    """
+    shown = []
+
+    def show():
+        if shown:
+            return
+        shown.append(True)
+        print(f"\n{bench.env_stamp()['gpu']}  dtype {name}")
+        print(
+            f"{'M':>7}{'N':>7}{'K':>7}{'baseline':>12}{'kernel':>11}{'TFLOP/s':>10}{'speedup':>9}"
+        )
+
+    return show
 
 
 def summarize(rows):
@@ -217,6 +306,12 @@ def main():
         "--quick", action="store_true", help="ablation-length timing window, not the reported one"
     )
     parser.add_argument(
+        "--no-cutlass",
+        action="store_true",
+        help="report formats torch cannot run as having no baseline, instead of "
+        "measuring them against CUTLASS",
+    )
+    parser.add_argument(
         "--output", default=None, help="JSON results path (default results/perf_<gpu>_<date>.json)"
     )
     parser.add_argument(
@@ -247,8 +342,7 @@ def main():
             break
         stored = configs.load_configs(DTYPES[name].impl, name)
 
-        print(f"\n{bench.env_stamp()['gpu']}  dtype {name}")
-        print(f"{'M':>7}{'N':>7}{'K':>7}{'cuBLAS':>12}{'kernel':>11}{'TFLOP/s':>10}{'speedup':>9}")
+        show = banner(name)
         for m, n, k in shapes:
             if (name, m, n, k) in done:
                 continue
@@ -259,12 +353,14 @@ def main():
                 try:
                     config = resolve_config(name, m, n, k)
                 except (ValueError, RuntimeError) as exc:
+                    show()
                     print(
                         f"{m:>7}{n:>7}{k:>7}  {'SKIPPED':>10}  {str(exc).splitlines()[0][:120]}",
                         flush=True,
                     )
                     continue
-            row = row_for(name, m, n, k, config, args.quick)
+            row = row_for(name, m, n, k, config, args.quick, cutlass=not args.no_cutlass)
+            show()
             print_row(row)
             rows.append(row)
             if row.get("fatal"):
