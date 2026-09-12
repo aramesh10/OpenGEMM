@@ -26,4 +26,4 @@ __all__ = [
     "pack_e2m1",
     "unpack_e2m1",
 ]
-__version__ = "0.1.0"
+__version__ = "0.1.3"
