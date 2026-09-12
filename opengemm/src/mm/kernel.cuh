@@ -160,12 +160,13 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     extern __shared__ __align__(1024) char smem_ptr[];
     const int smem = static_cast<int>(__cvta_generic_to_shared(smem_ptr));
 
-    __shared__ int64_t mbar[NUM_STAGES * 2 + 4 + (USE_CLC ? 3 * CLC_DEPTH : 0)];
+    __shared__ int64_t mbar[NUM_STAGES * 2 + 5 + (USE_CLC ? 3 * CLC_DEPTH : 0)];
     const int stage_full = static_cast<int>(__cvta_generic_to_shared(mbar));
     const int stage_free = stage_full + NUM_STAGES * MBAR;
     const int acc_full   = stage_free + NUM_STAGES * MBAR;
     const int acc_free   = acc_full   + 2 * MBAR;
-    const int clc_base   = acc_free   + 2 * MBAR;
+    const int alloc_done = acc_free   + 2 * MBAR;
+    const int clc_base   = alloc_done + MBAR;
 
     __shared__ __align__(16) uint4 clc_handles[CLC_DEPTH];
     __shared__ int clc_next;
@@ -189,6 +190,7 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
             mbar_init(acc_full + a * MBAR, 1);
             mbar_init(acc_free + a * MBAR, CTA_GROUP);
         }
+        mbar_init(alloc_done, CTA_GROUP);
         if constexpr (USE_CLC) {
             #pragma unroll
             for (int s = 0; s < CLC_DEPTH; ++s) {
@@ -200,9 +202,19 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
         mbar_fence_init();
     }
 
-    if (warp == MMA_WARP) tmem_alloc<CTA_GROUP, TMEM_COLS>(smem);
+    // The loads need only the barriers, so the cluster syncs on those and the
+    // TMA warp starts while the MMA warp allocates tensor memory. The MMA
+    // issuers wait for both CTAs' allocations on alloc_done.
     sync_cluster();
     if (tid == 0) pdl_arrive();
+
+    __shared__ uint32_t tmem_base;
+    if (warp == MMA_WARP) {
+        tmem_alloc<CTA_GROUP, TMEM_COLS>(
+            static_cast<int>(__cvta_generic_to_shared(&tmem_base)));
+        tmem_fence_before();
+        if (elect_sync()) mbar_arrive_cluster_to(alloc_done, group_leader);
+    }
 
     if (warp == TMA_WARP && elect_sync()) {
         int tile_id  = cluster_idx;
@@ -275,6 +287,8 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
     else if (warp >= MMA_WARP && warp < MMA_WARP + CONSUMERS &&
              is_leader && elect_sync()) {
         const int consumer = warp - MMA_WARP;
+        mbar_wait_cluster(alloc_done, 0);
+        tmem_fence();
         int tile_id  = cluster_idx;
         int tile_idx = 0;
         int stage    = 0;
@@ -307,12 +321,17 @@ void mm_gemm_kernel(const __grid_constant__ CUtensorMap a_tmap,
                 uint64_t a_desc = make_ab_desc(a_smem);
                 uint64_t b_desc = make_ab_desc(b_smem);
 
+                // Fold the tail: past the end of K the stage holds TMA's zero
+                // fill, so the MMAs that would read only zeros are skipped.
+                const int k_left = k - (k_begin + iter_k) * BLOCK_K;
+
                 #pragma unroll
                 for (int ki = 0; ki < K_ITERS;
                      ++ki, a_desc += DESC_STEP, b_desc += DESC_STEP)
-                    tcgen05_mma<CTA_GROUP, KIND>(acc_slot * ACC_COLS, a_desc, b_desc,
-                                           G::instr_desc,
-                                           (iter_k == 0 && ki == 0) ? 0 : 1);
+                    if (ki * MMA_K < k_left)
+                        tcgen05_mma<CTA_GROUP, KIND>(acc_slot * ACC_COLS, a_desc,
+                                               b_desc, G::instr_desc,
+                                               (iter_k == 0 && ki == 0) ? 0 : 1);
 
                 tcgen05_commit<CTA_GROUP>(stage_free + stage * MBAR,
                                           (RM == 1 && RN == 1) ? pair_mask

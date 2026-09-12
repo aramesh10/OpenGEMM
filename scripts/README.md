@@ -28,12 +28,19 @@ python scripts/tune.py --dtype e4m3 --all
 
 Times every dtype and shape against cuBLAS and writes the results as JSON under results/.
 
+`u8`, `e5m2`, `e3m2`, `e2m3`, `e2m1` and `mxfp4` have no torch kernel to compare
+against, so they are measured against the CUTLASS GEMMs in `utils/cutlass_ref.cu`
+instead - a few tile shapes each, reporting the fastest one that reproduces the
+reference. That needs a CUTLASS 4.x checkout in `OPENGEMM_CUTLASS`, compiled
+once and cached; without one those dtypes report "no baseline" as before.
+
 ```
-python scripts/benchmark.py [--dtype DTYPE ...] [--shape M N K] [--tune-missing] [--quick] [--output PATH] [--resume]
+python scripts/benchmark.py [--dtype DTYPE ...] [--shape M N K] [--tune-missing] [--quick] [--no-cutlass] [--output PATH] [--resume]
 python scripts/benchmark.py
 python scripts/benchmark.py --dtype bf16 e4m3 nvfp4 --quick
 python scripts/benchmark.py --dtype nvfp4 --shape 8192 8192 8192
 python scripts/benchmark.py --tune-missing --resume
+OPENGEMM_CUTLASS=~/cutlass python scripts/benchmark.py --dtype e2m1 mxfp4
 ```
 
 ## `emit_kernel.py`
